@@ -198,8 +198,47 @@ function MessageRow({ message }: { message: ChatMsg }) {
         if (p.type.startsWith("data-")) {
           return <ToolPart key={i} type={p.type} data={(p as { data: unknown }).data} />;
         }
+        if (p.type.startsWith("tool-")) {
+          return <OperatorToolPart key={i} part={p as unknown as { type: string; state: string; input?: unknown; output?: unknown; errorText?: string }} />;
+        }
         return null;
       })}
+    </div>
+  );
+}
+
+function OperatorToolPart({
+  part,
+}: {
+  part: { type: string; state: string; input?: unknown; output?: unknown; errorText?: string };
+}) {
+  const name = part.type.replace(/^tool-/, "");
+  const isError = part.state === "output-error";
+  const isDone = part.state === "output-available";
+  const Icon = isError ? AlertCircle : isDone ? CheckCircle2 : Loader2;
+  const iconClass = isError
+    ? "text-rose-500"
+    : isDone
+      ? "text-emerald-500"
+      : "text-zinc-400 animate-spin";
+
+  let summary = "";
+  const input = part.input as Record<string, unknown> | undefined;
+  if (input) {
+    if (typeof input.title === "string") summary = input.title;
+    else if (typeof input.id === "string") summary = input.id;
+    else if (typeof input.status === "string") summary = `→ ${input.status}`;
+    else summary = JSON.stringify(input).slice(0, 80);
+  }
+
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs">
+      <Icon size={12} className={`mt-0.5 shrink-0 ${iconClass}`} />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-zinc-700">{name}</div>
+        {summary && <div className="mt-0.5 truncate text-zinc-500">{summary}</div>}
+        {part.errorText && <div className="mt-1 text-rose-600">{part.errorText}</div>}
+      </div>
     </div>
   );
 }
