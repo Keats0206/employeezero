@@ -185,7 +185,7 @@ function MessageRow({ message }: { message: ChatMsg }) {
         if (p.type === "text") {
           return (
             <div key={i} className="prose prose-sm prose-zinc max-w-none text-sm text-zinc-800">
-              <Streamdown>{p.text}</Streamdown>
+              <Streamdown controls={false}>{p.text}</Streamdown>
             </div>
           );
         }
