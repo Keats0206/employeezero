@@ -2,25 +2,36 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
-  Inbox,
   Target,
-  ListChecks,
-  FileText,
+  Grid2x2,
+  Activity,
   Brain,
-  Plus,
+  LayoutDashboard,
+  ListTodo,
+  Inbox,
+  Plug,
+  Box,
 } from "lucide-react";
 
 const NAV = [
-  { href: "/", label: "Inbox", icon: Inbox },
-  { href: "/goals", label: "Goals", icon: Target },
-  { href: "/tasks", label: "Tasks", icon: ListChecks },
-  { href: "/artifacts", label: "Artifacts", icon: FileText },
+  { href: "/inbox", label: "Today", icon: Inbox },
+  { href: "/work", label: "Work", icon: ListTodo },
+  { href: "/experiments", label: "Experiments", icon: Target },
+  { href: "/canvas", label: "Business Model", icon: Grid2x2 },
+  { href: "/connectors", label: "Connectors", icon: Plug },
+  { href: "/agents", label: "Agents", icon: Activity },
   { href: "/memory", label: "Memory", icon: Brain },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/sandbox", label: "Sandbox", icon: Box },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const userName = session?.user?.name?.trim() || "Signed in";
+  const userEmail = session?.user?.email?.trim() || "";
   return (
     <aside className="fixed inset-y-0 left-0 z-10 hidden w-56 flex-col border-r border-zinc-100 bg-white px-4 py-6 md:flex">
       <Link href="/" className="mb-10 flex items-center gap-2 px-2">
@@ -57,15 +68,15 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto">
-        <button
-          type="button"
-          onClick={() => console.log("new task")}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700"
-        >
-          <Plus size={14} strokeWidth={2} />
-          New task
-        </button>
-        <div className="mt-3 px-2 text-[11px] text-zinc-400">
+        <div className="mb-3 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2">
+          <div className="truncate text-xs font-medium text-zinc-800">
+            {userName}
+          </div>
+          {userEmail ? (
+            <div className="truncate text-[11px] text-zinc-500">{userEmail}</div>
+          ) : null}
+        </div>
+        <div className="px-2 text-[11px] text-zinc-400">
           v0 · single-tenant
         </div>
       </div>
