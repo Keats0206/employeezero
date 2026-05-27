@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { TabStrip } from "./components/TopNav";
+import { SideNav } from "./components/TopNav";
 import { ChatPanel } from "./components/ChatPanel";
 import { AppRail } from "./components/AppRail";
 import { DevAgentation } from "./components/DevAgentation";
@@ -28,15 +28,13 @@ export default function RootLayout({
         <Providers>
           <div className="flex h-screen w-screen overflow-hidden">
             <AppRail />
-            <aside className="w-[420px] shrink-0 border-r border-zinc-200">
+            <SideNav />
+            <main className="flex flex-1 flex-col overflow-auto">
+              <div className="w-full px-8 py-8">{children}</div>
+            </main>
+            <aside className="w-[420px] shrink-0 border-l border-zinc-200">
               <ChatPanel />
             </aside>
-            <main className="flex flex-1 flex-col overflow-hidden">
-              <TabStrip />
-              <div className="flex-1 overflow-auto">
-                <div className="w-full px-8 py-8">{children}</div>
-              </div>
-            </main>
           </div>
           <DevAgentation />
           <ReportButton />

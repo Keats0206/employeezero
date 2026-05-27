@@ -27,10 +27,10 @@ const TABS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function TabStrip() {
+export function SideNav() {
   const pathname = usePathname();
   return (
-    <div className="flex h-12 items-center gap-0.5 overflow-x-auto border-b border-zinc-200 bg-white px-3">
+    <nav className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-zinc-200 bg-white px-3 py-4">
       {TABS.map((t) => {
         const Icon = t.icon;
         const active = pathname.startsWith(t.href);
@@ -38,22 +38,25 @@ export function TabStrip() {
           <Link
             key={t.href}
             href={t.href}
-            className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs transition-colors ${
+            className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
               active
                 ? "bg-zinc-100 text-zinc-900"
                 : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
             }`}
           >
-            <Icon size={13} strokeWidth={1.75} />
+            <Icon size={14} strokeWidth={1.75} />
             {t.label}
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }
 
-// Back-compat for any imports still using <Sidebar />
+// Back-compat shims
+export function TabStrip() {
+  return null;
+}
 export function Sidebar() {
   return null;
 }
