@@ -9,8 +9,10 @@ import {
   OctagonAlert,
   CheckCircle2,
   XCircle,
+  ListTodo,
 } from "lucide-react";
 import { SPRINT, WORK_TASKS, type WorkStatus, type WorkTask } from "../lib/prototype";
+import { EmptyState } from "../components/EmptyState";
 
 type Filter = "all" | "active" | "waiting_on_me" | "blocked" | "completed" | "failed";
 
@@ -53,6 +55,17 @@ function isActiveStatus(status: WorkStatus) {
 export default function WorkClient() {
   const [tasks] = useState<WorkTask[]>(WORK_TASKS);
   const [filter, setFilter] = useState<Filter>("all");
+
+  if (tasks.length === 0) {
+    return (
+      <EmptyState
+        icon={ListTodo}
+        title="No work yet"
+        hint="Tasks created by you or the operator land here. Try: 'Create a task to draft 3 landing page headlines' in chat."
+      />
+    );
+  }
+
 
   const counts = useMemo(() => {
     const active = tasks.filter((t) => isActiveStatus(t.status)).length;

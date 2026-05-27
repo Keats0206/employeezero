@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Pin, Search, Plus } from "lucide-react";
+import { Pin, Search, Plus, Brain } from "lucide-react";
 import type { Artifact, Memory, MemoryType } from "../lib/types";
 import { PageShell } from "../components/Shell";
+import { EmptyState } from "../components/EmptyState";
 import { formatDate } from "../components/ui";
 
 const SECTIONS: { key: MemoryType; label: string; blurb: string }[] = [
@@ -40,6 +41,18 @@ export default function MemoryClient({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<MemoryType>("company");
   const [pinned, setPinned] = useState<Record<string, boolean>>({});
+
+  if (memories.length === 0 && artifacts.length === 0) {
+    return (
+      <PageShell title="Memory">
+        <EmptyState
+          icon={Brain}
+          title="No memories or artifacts yet"
+          hint="Memories preserve decisions, company context, and agent notes. Try: 'Remember that we decided to skip auth for the MVP' in chat."
+        />
+      </PageShell>
+    );
+  }
 
   const section = SECTIONS.find((s) => s.key === active)!;
 

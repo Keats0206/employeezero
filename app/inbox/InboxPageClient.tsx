@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, Clock3, CircleX, Sparkles, ShieldCheck, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Clock3, CircleX, Sparkles, ShieldCheck, AlertTriangle, Inbox as InboxIcon } from "lucide-react";
 import { INBOX_DECISIONS, WORK_TASKS, type InboxDecision } from "../lib/prototype";
+import { EmptyState } from "../components/EmptyState";
 import Link from "next/link";
 
 type Filter = "open" | "resolved" | "deferred";
@@ -29,6 +30,16 @@ export default function InboxPageClient() {
     if (triage === "recommendations") return i.type === "recommendation" || i.strategic;
     return true;
   };
+
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={InboxIcon}
+        title="Nothing in your inbox"
+        hint="When an agent needs an approval, a choice, or a review, it shows up here. Try: 'Propose a tweet for the launch' in chat."
+      />
+    );
+  }
 
   const filtered = items.filter((i) => i.state === filter && (filter !== "open" || inTriage(i)));
   const selected = filtered.find((i) => i.id === selectedId) ?? filtered[0] ?? null;
