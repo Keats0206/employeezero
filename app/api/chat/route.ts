@@ -11,7 +11,14 @@ import { sandboxTools } from "@/app/lib/agents/sandbox/tools";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const MODEL = process.env.CHAT_MODEL ?? "anthropic/claude-sonnet-4-6";
+const DEFAULT_MODEL = process.env.CHAT_MODEL ?? "anthropic/claude-sonnet-4-6";
+const ALLOWED = new Set([
+  "anthropic/claude-opus-4-7",
+  "anthropic/claude-sonnet-4-6",
+  "anthropic/claude-haiku-4-5",
+  "openai/gpt-5.3-codex",
+  "xai/grok-4.1-fast-reasoning",
+]);
 
 const SYSTEM = `You are the operator inside employeezero — an autonomous CEO-in-a-box that builds and runs projects on behalf of its user.
 
@@ -31,14 +38,15 @@ CRITICAL RULES:
 Be direct and concise. Push back when the user is vague. Take action proactively when intent is clear.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const { messages, model }: { messages: UIMessage[]; model?: string } = await req.json();
+  const chosen = model && ALLOWED.has(model) ? model : DEFAULT_MODEL;
 
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
         const result = streamText({
-          model: MODEL,
+          model: chosen,
           system: SYSTEM,
           messages: await convertToModelMessages(messages),
           stopWhen: stepCountIs(20),

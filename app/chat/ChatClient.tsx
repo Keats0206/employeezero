@@ -3,6 +3,14 @@
 import { useState, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+
+const MODELS = [
+  { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { id: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7" },
+  { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  { id: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },
+  { id: "xai/grok-4.1-fast-reasoning", label: "Grok 4.1 Reasoning" },
+];
 import {
   Send,
   Loader2,
@@ -19,8 +27,12 @@ type ChatMsg = UIMessage<never, DataPart>;
 
 export default function ChatClient() {
   const [input, setInput] = useState("");
+  const [model, setModel] = useState(MODELS[0].id);
   const { messages, sendMessage, status } = useChat<ChatMsg>({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      body: () => ({ model }),
+    }),
   });
 
   const busy = status === "submitted" || status === "streaming";
@@ -86,6 +98,18 @@ export default function ChatClient() {
             onSubmit={submit}
             className="border-t border-zinc-200 bg-white p-3"
           >
+            <div className="mb-2 flex items-center gap-2">
+              <label className="text-[11px] uppercase tracking-wider text-zinc-400">Model</label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+              >
+                {MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
