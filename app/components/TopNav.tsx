@@ -13,9 +13,11 @@ import {
   Inbox,
   Plug,
   Box,
+  MessageCircle,
 } from "lucide-react";
 
 const NAV = [
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/inbox", label: "Today", icon: Inbox },
   { href: "/work", label: "Work", icon: ListTodo },
   { href: "/experiments", label: "Experiments", icon: Target },
