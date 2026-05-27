@@ -1,4 +1,4 @@
-import { getConnectors, getConnectorEvents } from "../lib/db/queries";
+import { getConnectors, getConnectorEvents } from "../../lib/db/queries";
 import ConnectorsClient from "./ConnectorsClient";
 
 export const dynamic = "force-dynamic";

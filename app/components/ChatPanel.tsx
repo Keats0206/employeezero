@@ -27,7 +27,7 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-white">
-      <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3">
+      <div className="flex h-12 items-center gap-2 border-b border-zinc-200 px-4">
         <Box size={14} className="text-zinc-500" />
         <h1 className="text-sm font-medium">Operator</h1>
         {busy && <Loader2 size={12} className="animate-spin text-zinc-400" />}

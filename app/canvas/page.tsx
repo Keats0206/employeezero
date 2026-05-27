@@ -409,7 +409,7 @@ export default function CanvasPage() {
             </h2>
             <ul className="mt-3 space-y-2">
               {block.content.map((line) => (
-                <li key={line} className="text-sm leading-relaxed text-zinc-700">
+                <li key={line} className="text-sm leading-relaxed text-zinc-500">
                   {line}
                 </li>
               ))}

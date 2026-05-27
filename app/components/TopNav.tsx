@@ -10,9 +10,9 @@ import {
   LayoutDashboard,
   ListTodo,
   Inbox,
-  Plug,
   Box,
   Globe,
+  Settings,
 } from "lucide-react";
 
 const TABS = [
@@ -22,10 +22,9 @@ const TABS = [
   { href: "/experiments", label: "Experiments", icon: Target },
   { href: "/canvas", label: "Canvas", icon: Grid2x2 },
   { href: "/memory", label: "Memory", icon: Brain },
-  { href: "/artifacts", label: "Artifacts", icon: Box },
   { href: "/agents", label: "Agents", icon: Activity },
-  { href: "/connectors", label: "Connectors", icon: Plug },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function TabStrip() {

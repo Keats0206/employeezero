@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { PageShell } from "../components/Shell";
+import { PageShell } from "../../components/Shell";
 
 type ConnectorItem = {
   id: string;
