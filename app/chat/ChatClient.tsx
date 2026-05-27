@@ -21,6 +21,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
+import { Streamdown } from "streamdown";
 import type { DataPart } from "../lib/agents/sandbox/data-parts";
 
 type ChatMsg = UIMessage<never, DataPart>;
@@ -183,8 +184,8 @@ function MessageRow({ message }: { message: ChatMsg }) {
       {message.parts.map((p, i) => {
         if (p.type === "text") {
           return (
-            <div key={i} className="whitespace-pre-wrap text-sm text-zinc-800">
-              {p.text}
+            <div key={i} className="prose prose-sm prose-zinc max-w-none text-sm text-zinc-800">
+              <Streamdown>{p.text}</Streamdown>
             </div>
           );
         }

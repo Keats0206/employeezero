@@ -15,6 +15,7 @@
     "@ai-sdk/react": "^3.0.193",
     "@auth/drizzle-adapter": "^1.11.2",
     "@neondatabase/serverless": "^1.1.0",
+    "@tailwindcss/typography": "^0.5.19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vercel/sandbox": "^2.0.1",
     "ai": "^6.0.191",
