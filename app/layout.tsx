@@ -32,7 +32,7 @@ export default function RootLayout({
             <main className="flex flex-1 flex-col overflow-hidden">
               <TabStrip />
               <div className="flex-1 overflow-auto">
-                <div className="mx-auto w-full max-w-5xl px-8 py-8">{children}</div>
+                <div className="w-full px-8 py-8">{children}</div>
               </div>
             </main>
           </div>
