@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SideNav } from "./components/TopNav";
 import { ChatPanel } from "./components/ChatPanel";
-import { AppRail } from "./components/AppRail";
 import { DevAgentation } from "./components/DevAgentation";
 import { ReportButton } from "./components/ReportButton";
 import { Providers } from "./providers";
@@ -27,7 +26,6 @@ export default function RootLayout({
       <body className="h-full bg-white text-zinc-900">
         <Providers>
           <div className="flex h-screen w-screen overflow-hidden">
-            <AppRail />
             <SideNav />
             <main className="flex flex-1 flex-col overflow-auto">
               <div className="w-full px-8 py-8">{children}</div>
