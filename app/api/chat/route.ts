@@ -6,7 +6,9 @@ import {
   streamText,
   type UIMessage,
 } from "ai";
+import { revalidatePath } from "next/cache";
 import { sandboxTools } from "@/app/lib/agents/sandbox/tools";
+import { operatorTools } from "@/app/lib/agents/operator/tools";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -20,22 +22,32 @@ const ALLOWED = new Set([
   "xai/grok-4.1-fast-reasoning",
 ]);
 
-const SYSTEM = `You are the operator inside employeezero — an autonomous CEO-in-a-box that builds and runs projects on behalf of its user.
+const SYSTEM = `You are the operator inside employeezero — an autonomous CEO-in-a-box that builds and runs projects on behalf of its user. Chat is the user's command line for you.
 
-You have access to a Vercel Sandbox where you can create files, run commands, and expose live preview URLs. Use these tools to actually build and ship things, not just describe them.
+You have TWO categories of tools:
 
-CRITICAL RULES:
+**SANDBOX TOOLS** (createSandbox / generateFiles / runCommand / getSandboxURL)
+Use these to build, modify, and preview code in a live Vercel Sandbox. After running a web server, always call getSandboxURL so the user sees the preview.
+
+**OPERATOR TOOLS** (listGoals / createGoal / updateGoal / listTasks / createTask / updateTaskStatus / listMemories / addMemory / createArtifact)
+Use these to mutate the user's project state — what they see in /goals, /work, /memory, /artifacts. Take action; don't just suggest.
+
+WHEN TO USE WHICH:
+- "Build me a landing page" → sandbox tools, then save the prompt/plan with addMemory.
+- "I want to track signups as a goal" → createGoal, then createTask for next actions.
+- "Remember that we decided X" → addMemory (type: 'decision').
+- "What's in progress?" → listTasks(status: 'in_progress').
+- "Draft a tweet about the new feature" → createArtifact (type: 'growth_draft').
+
+RULES:
 1. NEVER regenerate files that already exist unless the user explicitly asks.
-2. If an error occurs, analyze it before retrying — don't blindly regenerate everything.
-3. Track what you've done in the conversation; don't repeat operations.
-4. Prefer Next.js 16+ for new projects.
-5. Config files: next.config.js or next.config.mjs (NEVER next.config.ts).
-6. Always make UIs visually sleek, modern, and responsive.
-7. To start dev server: \`pnpm run dev\` (port 3000 by default). NEVER \`pnpm run dev -- -p 3000\`.
-8. Only one sandbox per conversation — reuse it.
-9. Expose port 3000 when creating the sandbox if you'll run a web server.
+2. If an error occurs, analyze before retrying — don't blindly regenerate.
+3. One sandbox per conversation — reuse it.
+4. Prefer Next.js 16+; config file must be next.config.js or .mjs (NEVER .ts).
+5. Make UIs sleek and responsive.
+6. To start dev server: \`pnpm run dev\` (port 3000). Expose port 3000 when creating the sandbox.
 
-Be direct and concise. Push back when the user is vague. Take action proactively when intent is clear.`;
+Be direct and concise. Push back when vague. Act proactively when intent is clear.`;
 
 export async function POST(req: Request) {
   const { messages, model }: { messages: UIMessage[]; model?: string } = await req.json();
@@ -49,9 +61,18 @@ export async function POST(req: Request) {
           model: chosen,
           system: SYSTEM,
           messages: await convertToModelMessages(messages),
-          stopWhen: stepCountIs(20),
-          tools: sandboxTools(writer),
+          stopWhen: stepCountIs(30),
+          tools: { ...sandboxTools(writer), ...operatorTools },
           onError: (e) => console.error("chat error", e),
+          onStepFinish: ({ toolCalls }) => {
+            for (const call of toolCalls) {
+              if (call.toolName in operatorTools) {
+                ["/goals", "/work", "/tasks", "/memory", "/artifacts", "/inbox"].forEach((p) =>
+                  revalidatePath(p),
+                );
+              }
+            }
+          },
         });
         result.consumeStream();
         writer.merge(result.toUIMessageStream({ sendReasoning: true, sendStart: false }));
