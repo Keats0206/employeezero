@@ -1,6 +1,7 @@
 import { Sandbox } from "@vercel/sandbox";
 import { gateway, streamText } from "ai";
 import { CHEAP_MODEL } from "@/app/lib/cabana-config";
+import { createAppProject, getAppProject } from "@/app/lib/db/app-data";
 
 // Stress-test: build on the cheap model too. Swap back to a stronger model for
 // production-quality HTML when you're done testing.
@@ -25,7 +26,7 @@ export type BuilderEvent =
   | { type: "code"; delta: string }
   | { type: "html"; html: string }
   | { type: "deploy_error"; message: string }
-  | { type: "complete"; html: string; url: string | null; summary: string }
+  | { type: "complete"; html: string; url: string | null; summary: string; projectId?: string }
   | { type: "error"; message: string };
 
 export function contentFromOutputs(outputs: {
@@ -78,6 +79,7 @@ Requirements:
 - Self-contained: load Tailwind via <script src="https://cdn.tailwindcss.com"></script> in <head>. No external CSS files.
 - Load Inter from Google Fonts and apply it to the body.
 - Sections: sticky nav, hero with CTA, a "pains" section addressing each pain, an offer/pricing card, how-it-works or social proof, FAQ, footer ("Built with Cabana").
+- The primary CTA MUST be a real <form> containing at least an <input type="email" name="email" required> and a submit button (the CTA text). Cabana wires this form to capture leads — do not point it at an external URL. A second form in the footer/pricing section is welcome.
 - Modern, clean, conversion-focused. Real, specific copy — expand beyond the inputs where it helps. Mobile-first responsive.`;
 }
 
@@ -133,6 +135,47 @@ function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "cabana-site";
 }
 
+// Inject a small script that wires every <form> on the generated page to
+// Cabana's ingestion API, so submissions land in the central store keyed to
+// this project. The page is deployed to its own domain, so the endpoint must be
+// absolute — set CABANA_URL to Cabana's public origin.
+function injectCapture(html: string, projectId: string, publicKey: string): string {
+  const base = (process.env.CABANA_URL || "").replace(/\/$/, "");
+  const endpoint = `${base}/api/p/${projectId}/leads`;
+  const script = `
+<script>
+(function () {
+  var ENDPOINT = ${JSON.stringify(endpoint)};
+  var KEY = ${JSON.stringify(publicKey)};
+  function wire(form) {
+    if (form.dataset.cabanaWired) return;
+    form.dataset.cabanaWired = "1";
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var data = { _key: KEY };
+      new FormData(form).forEach(function (v, k) { data[k] = v; });
+      fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then(function () {
+        form.innerHTML = '<p style="text-align:center;font-weight:600;padding:1rem">Thanks — you\\'re on the list!</p>';
+      }).catch(function () {
+        form.innerHTML = '<p style="text-align:center;padding:1rem">Something went wrong. Try again.</p>';
+      });
+    });
+  }
+  function wireAll() { document.querySelectorAll("form").forEach(wire); }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wireAll);
+  } else { wireAll(); }
+})();
+</script>`;
+  return html.includes("</body>")
+    ? html.replace("</body>", `${script}\n</body>`)
+    : html + script;
+}
+
 async function deployHtml(html: string, content: SiteContent): Promise<string | null> {
   const snapshotId = process.env.SANDBOX_SNAPSHOT_ID;
   const sandbox = await Sandbox.create(
@@ -164,6 +207,7 @@ export async function runBuilderTask({
   brief,
   existingHtml,
   model,
+  projectId,
   onEvent,
 }: {
   content: SiteContent;
@@ -171,6 +215,7 @@ export async function runBuilderTask({
   brief?: string;
   existingHtml?: string;
   model?: string;
+  projectId?: string;
   onEvent?: (event: BuilderEvent) => void;
 }) {
   const buildModel = model || BUILDER_MODEL;
@@ -192,6 +237,12 @@ export async function runBuilderTask({
 
   let html = stripFences(raw);
   if (!html.toLowerCase().includes("<html")) html = fallbackHtml(content);
+
+  // Mint (or reuse) the project this page captures data into, then wire its
+  // forms to Cabana's ingestion API so submissions land in the central store.
+  const project = (projectId && (await getAppProject(projectId))) || (await createAppProject({ label: content.businessName }));
+  html = injectCapture(html, project.id, project.public_key);
+
   send({ type: "html", html });
   send({ type: "phase", phase: "deploying", text: "Publishing to a live URL..." });
 
@@ -205,6 +256,6 @@ export async function runBuilderTask({
   const summary = shouldUpdate
     ? `Builder updated ${content.businessName} from the approved work order.`
     : `Builder created the first ${content.businessName} landing page.`;
-  send({ type: "complete", html, url, summary });
-  return { html, url, summary, model: buildModel };
+  send({ type: "complete", html, url, summary, projectId: project.id });
+  return { html, url, summary, model: buildModel, projectId: project.id };
 }

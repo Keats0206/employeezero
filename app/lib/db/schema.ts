@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
 const now = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -183,5 +183,32 @@ export const llmCalls = pgTable("llm_calls", {
   duration_ms: integer("duration_ms"),
   finish_reason: text("finish_reason"),
   error: text("error"),
+  created_at: now(),
+});
+
+// --- Generated-app data (centralized, schemaless) ---
+// Each business Cabana ships gets one project here. Generated apps write
+// arbitrary documents into it via the public ingestion API; Cabana owns the
+// store, so the CoS + analytics can read across every project. This is the
+// "Cabana owns the infra" model — schemaless on purpose.
+
+export const appProjects = pgTable("app_projects", {
+  id: id(),
+  // Public, write-only key baked into the generated page and sent on ingest.
+  public_key: text("public_key").notNull().$defaultFn(() => crypto.randomUUID()),
+  // Loose link back to the cabana that owns this project (prototype-friendly:
+  // not a hard FK, since the chat flow doesn't always create a cabana yet).
+  cabana_id: text("cabana_id"),
+  label: text("label").notNull().default(""),
+  created_at: now(),
+});
+
+export const appDocuments = pgTable("app_documents", {
+  id: id(),
+  project_id: text("project_id").notNull(),
+  // Logical bucket within a project, e.g. "leads", "orders", "signups".
+  collection: text("collection").notNull(),
+  // The document — any shape the generated app sends.
+  data: jsonb("data").notNull().default({}),
   created_at: now(),
 });

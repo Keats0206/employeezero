@@ -27,6 +27,7 @@ import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/ai-e
 
 const SURF = "#23b5d3";
 const HISTORY_KEY = "cabana_chat_history";
+const BUILD_KEY = "cabana_build";
 
 // Chat history persists to localStorage so the conversation always survives a
 // reload. Prototype storage — same DB seam as the brief.
@@ -42,6 +43,27 @@ function loadHistory(): UIMessage[] {
 function saveHistory(messages: UIMessage[]) {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(messages));
+  } catch {
+    /* ignore */
+  }
+}
+
+// The finished build (HTML + live URL) persists too, so a reload keeps the
+// landing page preview and "Open live" link. Same prototype seam — the real
+// home for this is the landingPages table.
+function loadBuild(): BuildState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(BUILD_KEY);
+    return raw ? (JSON.parse(raw) as BuildState) : null;
+  } catch {
+    return null;
+  }
+}
+function saveBuild(build: BuildState | null) {
+  try {
+    if (build) localStorage.setItem(BUILD_KEY, JSON.stringify(build));
+    else localStorage.removeItem(BUILD_KEY);
   } catch {
     /* ignore */
   }
@@ -155,6 +177,8 @@ export default function ChatPage() {
   function newChat() {
     setMessages([]);
     saveHistory([]);
+    setBuild({ status: "idle" });
+    saveBuild(null);
   }
 
   // Desk tab is controlled here so a build can switch the desk to the Page tab.
@@ -162,6 +186,18 @@ export default function ChatPage() {
 
   // Build state — driven only by an explicit human click, never by the CoS.
   const [build, setBuild] = useState<BuildState>({ status: "idle" });
+
+  // Rehydrate the last finished build after mount (SSR-safe, mirrors history).
+  useEffect(() => {
+    const saved = loadBuild();
+    if (saved?.html) setBuild(saved);
+  }, []);
+
+  // Persist only completed builds — never the transient "building" state, which
+  // would otherwise rehydrate as a stuck spinner.
+  useEffect(() => {
+    if (build.status === "done" && build.html) saveBuild(build);
+  }, [build]);
   // Which model the Builder uses — founder-selectable per build. Defaults to the
   // Builder's configured model.
   const [buildModel, setBuildModel] = useState<string>(AGENT_MODELS.builder);
@@ -169,13 +205,17 @@ export default function ChatPage() {
 
   function startBuild(chosenHeadline?: string) {
     setDeskTab("page");
-    setBuild({ status: "building", phase: "Starting the Builder…" });
+    // Reuse the existing project on rebuild so captured leads accrue to one
+    // place rather than scattering across throwaway projects.
+    const existingProjectId = build.projectId;
+    setBuild({ status: "building", phase: "Starting the Builder…", projectId: existingProjectId });
     streamBuild(
       crewRef.current,
       chosenHeadline,
       (patch) => setBuild((b) => ({ ...b, ...patch })),
       undefined,
       buildModel,
+      existingProjectId,
     ).catch((err) =>
       setBuild({ status: "error", error: err instanceof Error ? err.message : String(err) })
     );
