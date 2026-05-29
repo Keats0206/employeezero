@@ -5,6 +5,39 @@ export type AgentId = typeof AGENT_ORDER[number];
 export type AgentStatus = "queued" | "working" | "done";
 export type Screen = "landing" | "bootup" | "preview" | "upgrade" | "dashboard";
 
+// ─── Model selection (per agent role) ──────────────────────────────────────────
+// One model per agent so we can trade cost vs. reliability per role. The
+// schema-strict agents (exact-length arrays) get a sturdier model; the loose
+// free-text ones can stay cheap. Gateway provider/model identifiers.
+export const AGENT_MODELS: Record<AgentId, string> = {
+  scout:      "anthropic/claude-haiku-4-5",
+  strategist: "anthropic/claude-haiku-4-5",
+  builder:    "anthropic/claude-sonnet-4-6", // only the builder needs the strong model
+  seller:     "anthropic/claude-haiku-4-5",
+  creator:    "anthropic/claude-haiku-4-5",
+  analyst:    "anthropic/claude-haiku-4-5",
+};
+
+// Stress-test switch. When set, the chat CoS + every crew tool run on this one
+// ultra-cheap model instead of their per-role assignments. Override via the
+// CABANA_CHEAP_MODEL env var; default is the cheapest model in MODEL_PRICING.
+export const CHEAP_MODEL = process.env.CABANA_CHEAP_MODEL || "anthropic/claude-haiku-4-5";
+
+// USD per 1,000,000 tokens, by gateway model id. Estimates — adjust to match
+// your gateway billing. Used only to display run cost in the dev inspector.
+export const MODEL_PRICING: Record<string, { in: number; out: number }> = {
+  "anthropic/claude-sonnet-4-6": { in: 3, out: 15 },
+  "anthropic/claude-haiku-4-5":  { in: 1, out: 5 },
+  "deepseek/deepseek-v3.2":      { in: 0.28, out: 0.42 },
+  "openai/gpt-5":                { in: 1.25, out: 10 },
+};
+
+export function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
+  const p = MODEL_PRICING[model];
+  if (!p) return 0;
+  return (inputTokens / 1_000_000) * p.in + (outputTokens / 1_000_000) * p.out;
+}
+
 export type AgentOutputs = {
   scout?: {
     pains: string[]; channels: string[]; competitors: string[]; keywords: string[];
@@ -31,6 +64,16 @@ export const AGENT_META: Record<AgentId, { name: string; role: string; icon: str
   seller:     { name: "Seller",     role: "Outreach",        icon: "💬" },
   creator:    { name: "Creator",    role: "Content",         icon: "🎬" },
   analyst:    { name: "Analyst",    role: "Revenue path",    icon: "📊" },
+};
+
+// Beach palette — one hex per agent, used as accents on a black/white canvas.
+export const AGENT_COLOR: Record<AgentId, string> = {
+  scout:      "#23b5d3", // Turquoise Surf
+  strategist: "#304c89", // Dusk Blue
+  builder:    "#0cf574", // Spring Green
+  seller:     "#f5cb5c", // Tuscan Sun
+  creator:    "#d8bfaa", // Desert Sand
+  analyst:    "#23b5d3", // Turquoise Surf
 };
 
 export const AGENT_PALETTE: Record<AgentId, {
