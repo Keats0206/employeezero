@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { AGENT_META, AGENT_COLOR, EXAMPLES, type AgentId } from "@/app/lib/cabana-config";
+import { AGENT_META, AGENT_COLOR, AGENT_MODELS, EXAMPLES, type AgentId } from "@/app/lib/cabana-config";
 import { Desk, type CrewStatus, type AgentActivity, type CrewRun, type DeskTab } from "@/app/components/cabana/Desk";
 import { loadBrief, saveBrief, type BusinessBrief } from "@/app/lib/cabana-brief";
 import { streamBuild, type BuildState } from "@/app/lib/cabana-build";
@@ -162,12 +162,21 @@ export default function ChatPage() {
 
   // Build state — driven only by an explicit human click, never by the CoS.
   const [build, setBuild] = useState<BuildState>({ status: "idle" });
+  // Which model the Builder uses — founder-selectable per build. Defaults to the
+  // Builder's configured model.
+  const [buildModel, setBuildModel] = useState<string>(AGENT_MODELS.builder);
   const crewRef = useRef<CrewStatus>({} as CrewStatus);
 
   function startBuild(chosenHeadline?: string) {
     setDeskTab("page");
     setBuild({ status: "building", phase: "Starting the Builder…" });
-    streamBuild(crewRef.current, chosenHeadline, (patch) => setBuild((b) => ({ ...b, ...patch }))).catch((err) =>
+    streamBuild(
+      crewRef.current,
+      chosenHeadline,
+      (patch) => setBuild((b) => ({ ...b, ...patch })),
+      undefined,
+      buildModel,
+    ).catch((err) =>
       setBuild({ status: "error", error: err instanceof Error ? err.message : String(err) })
     );
   }
@@ -311,6 +320,8 @@ export default function ChatPage() {
           onTabChange={setDeskTab}
           build={build}
           onBuild={startBuild}
+          buildModel={buildModel}
+          onBuildModelChange={setBuildModel}
         />
       </div>
     </div>

@@ -36,13 +36,14 @@ export async function streamBuild(
   chosenHeadline: string | undefined,
   onState: (patch: Partial<BuildState>) => void,
   signal?: AbortSignal,
+  model?: string,
 ) {
   onState({ status: "building", phase: "Starting the Builder…", error: undefined });
 
   const res = await fetch("/api/cabana/deploy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ outputs: assembleOutputs(crew, chosenHeadline), taskType: "new_site" }),
+    body: JSON.stringify({ outputs: assembleOutputs(crew, chosenHeadline), taskType: "new_site", model }),
     signal,
   });
 
