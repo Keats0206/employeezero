@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: "anthropic/claude-haiku-4-5",
     system: SYSTEM,
-    messages: convertToModelMessages(messages),
+    messages: await convertToModelMessages(messages),
     stopWhen: stepCountIs(5),
     tools: {
       updateCompany: tool({
