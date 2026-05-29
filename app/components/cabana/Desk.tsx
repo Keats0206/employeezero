@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Streamdown } from "streamdown";
-import { Home, Users, Globe, Activity, FolderOpen, BookText, Inbox, Target, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
+import { Home, Users, Globe, Activity, FolderOpen, BookText, Inbox, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
 import { BRIEF_TEMPLATE, type BusinessBrief } from "@/app/lib/cabana-brief";
 import type { BuildState } from "@/app/lib/cabana-build";
 import { AGENT_META, AGENT_COLOR, AGENT_ORDER, BUILD_MODELS, type AgentId } from "@/app/lib/cabana-config";
@@ -49,6 +49,7 @@ export function Desk({
   onBuild,
   buildModel,
   onBuildModelChange,
+  onQuickAction,
 }: {
   brief: BusinessBrief;
   onBriefChange: (content: string) => void;
@@ -60,6 +61,7 @@ export function Desk({
   onBuild: (chosenHeadline?: string) => void;
   buildModel: string;
   onBuildModelChange: (model: string) => void;
+  onQuickAction: (prompt: string) => void;
 }) {
   const setTab = onTabChange;
   const workingCount = AGENT_ORDER.filter((id) => crew[id]?.status === "working").length;
@@ -78,7 +80,18 @@ export function Desk({
 
       {/* Active view */}
       <div className="flex-1 overflow-y-auto p-4">
-        {tab === "home" && <HomePanel crew={crew} onSeeCrew={() => setTab("crew")} />}
+        {tab === "home" && (
+          <HomePanel
+            crew={crew}
+            build={build}
+            brief={brief}
+            runs={runs}
+            onQuickAction={onQuickAction}
+            onSeeCrew={() => setTab("crew")}
+            onSeePage={() => setTab("page")}
+            onSeeSignals={() => setTab("signals")}
+          />
+        )}
         {tab === "crew" && <CrewPanel runs={runs} />}
         {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
         {tab === "signals" && <SignalsPanel projectId={build.projectId} />}
@@ -137,37 +150,228 @@ function EmptyPanel({ icon, title, hint }: { icon: React.ReactNode; title: strin
 }
 
 // ─── Home — top-level "what's going on" ──────────────────────────────────────
-function HomePanel({ crew, onSeeCrew }: { crew: CrewStatus; onSeeCrew: () => void }) {
-  const done = AGENT_ORDER.filter((id) => crew[id]?.status === "done").length;
+// The founder's home base. One goal: get to the first sale. Everything here is
+// framed as a friendly quest toward that, with real state lighting up the path.
+function HomePanel({
+  crew,
+  build,
+  brief,
+  runs,
+  onQuickAction,
+  onSeeCrew,
+  onSeePage,
+  onSeeSignals,
+}: {
+  crew: CrewStatus;
+  build: BuildState;
+  brief: BusinessBrief;
+  runs: CrewRun[];
+  onQuickAction: (prompt: string) => void;
+  onSeeCrew: () => void;
+  onSeePage: () => void;
+  onSeeSignals: () => void;
+}) {
+  // Live lead/sale counts from the generated app's captured documents.
+  const [counts, setCounts] = useState<{ collection: string; count: number }[]>([]);
+  useEffect(() => {
+    if (!build.projectId) return;
+    let active = true;
+    async function pull() {
+      try {
+        const res = await fetch(`/api/cabana/app-data/${build.projectId}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (active) setCounts(json.counts ?? []);
+      } catch {
+        /* ignore */
+      }
+    }
+    pull();
+    const t = setInterval(pull, 5000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [build.projectId]);
+
+  const countOf = (c: string) => counts.find((x) => x.collection === c)?.count ?? 0;
+  const leads = counts.reduce((n, c) => n + (c.collection === "sales" || c.collection === "orders" ? 0 : c.count), 0);
+  const sales = countOf("sales") + countOf("orders");
+
+  const strat = crew.strategist?.output as { businessName?: string; offer?: string; goal?: string } | undefined;
+  const name = strat?.businessName?.trim();
+  const offer = strat?.offer?.trim();
+
+  // The road to first revenue — each milestone lights up as real state lands.
+  const stages = [
+    { key: "idea", label: "Idea", emoji: "💡", done: !!(brief.content?.trim() || name) },
+    { key: "strategy", label: "Strategy", emoji: "🎯", done: !!crew.strategist?.output },
+    { key: "page", label: "Page live", emoji: "🌐", done: !!build.url },
+    { key: "leads", label: "First lead", emoji: "📨", done: leads > 0 },
+    { key: "sale", label: "First sale", emoji: "🎉", done: sales > 0 },
+  ];
+  const reached = stages.filter((s) => s.done).length;
+  const allDone = reached === stages.length;
+  // The current step is the first not-yet-done stage.
+  const currentIdx = stages.findIndex((s) => !s.done);
+
+  // A single, encouraging next step keyed to where they are.
+  const nextStep = (() => {
+    if (allDone) return null;
+    switch (stages[currentIdx].key) {
+      case "idea":
+        return { text: "Tell your Chief of Staff your idea to kick things off.", cta: null, onClick: null };
+      case "strategy":
+        return { text: "Ask the crew to lock a strategy and offer.", cta: "See crew", onClick: onSeeCrew };
+      case "page":
+        return { text: "Build your landing page so people have somewhere to land.", cta: "Go to page", onClick: onSeePage };
+      case "leads":
+        return build.url
+          ? { text: "Your page is live — share it to land your first lead.", cta: "Open live", onClick: null, href: build.url }
+          : { text: "Publish your page, then share it to capture leads.", cta: "Go to page", onClick: onSeePage };
+      case "sale":
+        return { text: "You've got leads! Nudge them toward your first sale.", cta: "See signals", onClick: onSeeSignals };
+      default:
+        return null;
+    }
+  })();
+
   const working = AGENT_ORDER.filter((id) => crew[id]?.status === "working").length;
-  const pct = Math.round((done / AGENT_ORDER.length) * 100);
+  const recent = [...runs].reverse().slice(0, 4);
+
+  // Friendly quick actions — each fires a prompt to the Chief of Staff.
+  const suggestions = [
+    { emoji: "🧭", label: "What's my next move?", prompt: "What should I focus on next to get my first sale?" },
+    { emoji: "🔍", label: "Find my customers", prompt: "Help me figure out where my customers hang out and the best way to reach them." },
+    { emoji: "🎯", label: "Sharpen my offer", prompt: "Let's refine my offer and pricing so it converts." },
+    { emoji: "✍️", label: "Write outreach", prompt: "Draft outreach messages I can send to land my first customers." },
+  ];
 
   return (
-    <div className="space-y-3">
-      {/* Sprint goal */}
-      <section className="rounded-2xl border border-black/10 bg-white p-4">
-        <div className="flex items-center gap-2 text-black/50">
-          <Target size={14} style={{ color: SURF }} />
-          <span className="text-[10px] uppercase tracking-wide">Current sprint goal</span>
+    <div className="space-y-4">
+      {/* Greeting + suggested actions */}
+      <section className="pt-2 text-center">
+        <h2 className="text-2xl font-bold tracking-tight">{name ? `Welcome back` : "Welcome to Cabana"}</h2>
+        <p className="mt-1 text-base text-black/50">
+          {name ? `What should we do for ${name} today?` : "What should we work on today?"}
+        </p>
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {suggestions.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => onQuickAction(s.prompt)}
+              className="flex items-center gap-3 rounded-full border border-black/10 bg-white px-4 py-3 text-left hover:border-black/30 transition-colors"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base" style={{ background: `${SURF}1a` }}>
+                {s.emoji}
+              </span>
+              <span className="text-sm font-medium text-black/80">{s.label}</span>
+            </button>
+          ))}
         </div>
-        <p className="mt-2 text-sm text-black/30">No goal set yet — tell the Chief of Staff what you&apos;re aiming for.</p>
       </section>
+
+      {/* Identity — what we're building */}
+      <section className="rounded-2xl border border-black/10 bg-white p-5">
+        <p className="text-[10px] uppercase tracking-wide text-black/40">{name ? "Building" : "Your idea"}</p>
+        <h2 className="mt-1 text-xl font-bold tracking-tight">
+          {name || "Let's land your first customer."}
+        </h2>
+        <p className="mt-1 text-sm text-black/50">
+          {offer || "Tell your Chief of Staff a one-line idea and the crew gets to work — every step points at your first sale."}
+        </p>
+      </section>
+
+      {/* Road to first sale — the quest */}
+      <section className="rounded-2xl border border-black/10 bg-white p-5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wide text-black/50">Road to your first sale</span>
+          <span className="text-[11px] font-medium tabular-nums" style={{ color: SURF }}>{reached}/{stages.length}</span>
+        </div>
+
+        <div className="mt-4 flex items-center">
+          {stages.map((s, i) => {
+            const isCurrent = i === currentIdx;
+            return (
+              <div key={s.key} className="flex items-center flex-1 last:flex-none">
+                <div className="flex flex-col items-center gap-1.5">
+                  <div
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-base transition-all ${
+                      s.done ? "scale-100" : isCurrent ? "scale-100 ring-2 ring-offset-2" : "opacity-35"
+                    }`}
+                    style={{
+                      background: s.done ? SURF : isCurrent ? `${SURF}1a` : "#f3f4f6",
+                      ...(isCurrent ? { boxShadow: `0 0 0 2px white, 0 0 0 4px ${SURF}` } : {}),
+                    }}
+                  >
+                    {s.done ? <Check size={16} className="text-white" /> : <span>{s.emoji}</span>}
+                  </div>
+                  <span className={`text-[10px] ${s.done ? "text-black/70 font-medium" : isCurrent ? "text-black/70" : "text-black/30"}`}>
+                    {s.label}
+                  </span>
+                </div>
+                {i < stages.length - 1 && (
+                  <div className="flex-1 h-0.5 mx-1 mb-4 rounded-full overflow-hidden bg-black/5">
+                    <div className="h-full rounded-full transition-all" style={{ width: s.done ? "100%" : "0%", background: SURF }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {allDone && (
+          <p className="mt-4 text-center text-sm font-semibold" style={{ color: SURF }}>🎉 First sale landed — let&apos;s get the next one.</p>
+        )}
+      </section>
+
+      {/* Next step nudge */}
+      {nextStep && (
+        <section className="rounded-2xl p-4 flex items-center gap-3" style={{ background: `${SURF}12` }}>
+          <span className="text-lg">👉</span>
+          <p className="flex-1 text-sm text-black/70">{nextStep.text}</p>
+          {nextStep.cta && (
+            nextStep.href ? (
+              <a href={nextStep.href} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full text-white" style={{ background: SURF }}>
+                {nextStep.cta}
+              </a>
+            ) : (
+              <button onClick={nextStep.onClick ?? undefined} className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full text-white" style={{ background: SURF }}>
+                {nextStep.cta}
+              </button>
+            )
+          )}
+        </section>
+      )}
+
+      {/* Achievement-style stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={onSeePage} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
+          <p className="text-[10px] uppercase tracking-wide text-black/40">Page</p>
+          <p className="mt-1 text-base font-bold" style={{ color: build.url ? SURF : undefined }}>
+            {build.url ? "Live ✓" : build.status === "building" ? "Building…" : "Not yet"}
+          </p>
+        </button>
+        <button onClick={onSeeSignals} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
+          <p className="text-[10px] uppercase tracking-wide text-black/40">Leads</p>
+          <p className="mt-1 text-base font-bold tabular-nums" style={{ color: leads > 0 ? SURF : undefined }}>{leads}</p>
+        </button>
+        <button onClick={onSeeCrew} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
+          <p className="text-[10px] uppercase tracking-wide text-black/40">Crew</p>
+          <p className="mt-1 text-base font-bold">{working > 0 ? `${working} working` : "Ready"}</p>
+        </button>
+      </div>
 
       {/* Crew at a glance */}
       <section className="rounded-2xl border border-black/10 bg-white p-4">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-black/50">Crew</span>
-          <button onClick={onSeeCrew} className="text-[11px] text-black/40 hover:text-black/70 transition-colors">
-            {working > 0 ? `${working} working →` : "See all →"}
-          </button>
+          <span className="text-[10px] uppercase tracking-wide text-black/50">Your crew</span>
+          <button onClick={onSeeCrew} className="text-[11px] text-black/40 hover:text-black/70 transition-colors">See all →</button>
         </div>
         <div className="mt-3 flex items-center gap-2">
           {AGENT_ORDER.map((id) => (
             <div key={id} className="flex flex-col items-center gap-1" title={`${AGENT_META[id].name} · ${crew[id]?.status ?? "idle"}`}>
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-sm relative"
-                style={{ background: `${AGENT_COLOR[id]}1a` }}
-              >
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm relative" style={{ background: `${AGENT_COLOR[id]}1a` }}>
                 {AGENT_META[id].icon}
                 <StatusDot status={crew[id]?.status ?? "idle"} className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white" />
               </div>
@@ -176,23 +380,26 @@ function HomePanel({ crew, onSeeCrew }: { crew: CrewStatus; onSeeCrew: () => voi
         </div>
       </section>
 
-      {/* Progress */}
-      <section className="rounded-2xl border border-black/10 bg-white p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-black/50">Progress</span>
-          <span className="text-[11px] text-black/30 tabular-nums">{pct}%</span>
-        </div>
-        <div className="mt-2 h-1.5 rounded-full bg-black/5 overflow-hidden">
-          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: SURF }} />
-        </div>
-        <p className="mt-2 text-xs text-black/30">Milestones the crew completes show up here.</p>
-      </section>
-
-      {/* Urgent actions */}
-      <section className="rounded-2xl border border-black/10 bg-white p-4">
-        <span className="text-[10px] uppercase tracking-wide text-black/50">Urgent actions</span>
-        <p className="mt-2 text-xs text-black/30">Nothing needs you right now. Approvals and decisions surface here when the CoS is blocked.</p>
-      </section>
+      {/* Recent wins / activity */}
+      {recent.length > 0 && (
+        <section className="rounded-2xl border border-black/10 bg-white p-4">
+          <span className="text-[10px] uppercase tracking-wide text-black/50">Latest from the crew</span>
+          <div className="mt-3 space-y-2.5">
+            {recent.map((r) => (
+              <div key={r.id} className="flex items-start gap-2.5">
+                <span className="text-sm mt-0.5">{AGENT_META[r.agent]?.icon ?? "🛠️"}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-black/80">
+                    <span className="font-medium">{AGENT_META[r.agent]?.name ?? r.agent}</span>{" "}
+                    {r.status === "done" ? "finished" : "is working on"} {r.task ? `— ${r.task}` : ""}
+                  </p>
+                </div>
+                <StatusDot status={r.status === "done" ? "done" : "working"} className="mt-1" />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

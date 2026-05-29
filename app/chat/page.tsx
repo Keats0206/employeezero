@@ -363,6 +363,7 @@ export default function ChatPage() {
           onBuild={startBuild}
           buildModel={buildModel}
           onBuildModelChange={setBuildModel}
+          onQuickAction={submitText}
         />
       </div>
     </div>

@@ -206,6 +206,8 @@ body {
   }
   html {
     @apply font-sans;
+    /* Nudge the whole app up slightly — all rem-based text scales from here. */
+    font-size: 106.25%; /* 17px from a 16px default */
   }
 }
 
