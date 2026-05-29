@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
-  const { outputs, existingHtml, updateInstruction, taskType, model } = await req.json();
+  const { outputs, existingHtml, updateInstruction, taskType, model, projectId } = await req.json();
   const content = contentFromOutputs(outputs ?? {});
   // Only honor a model the founder is actually allowed to pick; otherwise let
   // the builder fall back to its default.
@@ -28,6 +28,7 @@ export async function POST(req: Request) {
           brief: updateInstruction,
           existingHtml,
           model: buildModel,
+          projectId: typeof projectId === "string" ? projectId : undefined,
           onEvent: send,
         });
       } catch (err) {

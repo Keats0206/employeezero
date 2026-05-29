@@ -81,7 +81,7 @@ export function Desk({
         {tab === "home" && <HomePanel crew={crew} onSeeCrew={() => setTab("crew")} />}
         {tab === "crew" && <CrewPanel runs={runs} />}
         {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
-        {tab === "signals" && <SignalsPanel />}
+        {tab === "signals" && <SignalsPanel projectId={build.projectId} />}
         {tab === "artifacts" && <ArtifactsPanel />}
         {tab === "brief" && <BriefPanel brief={brief} onChange={onBriefChange} />}
       </div>
@@ -603,25 +603,99 @@ function BuildReady({
   );
 }
 
-function SignalsPanel() {
-  const metrics = ["Visitors", "Clicks", "Replies", "Sales"];
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-4 gap-2">
-        {metrics.map((m) => (
-          <div key={m} className="rounded-xl border border-black/10 bg-white px-3 py-3">
-            <p className="text-[10px] uppercase tracking-wide text-black/30">{m}</p>
-            <p className="mt-1 text-2xl font-semibold text-black/20 tabular-nums">0</p>
-          </div>
-        ))}
-      </div>
+type AppDoc = { id: string; collection: string; data: Record<string, unknown>; created_at: string };
+
+function SignalsPanel({ projectId }: { projectId?: string }) {
+  const [docs, setDocs] = useState<AppDoc[]>([]);
+  const [counts, setCounts] = useState<{ collection: string; count: number }[]>([]);
+
+  // Poll the project's captured documents while the Signals tab is open, so new
+  // leads from the live page show up without a manual refresh.
+  useEffect(() => {
+    if (!projectId) return;
+    let active = true;
+    async function pull() {
+      try {
+        const res = await fetch(`/api/cabana/app-data/${projectId}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!active) return;
+        setDocs(json.documents ?? []);
+        setCounts(json.counts ?? []);
+      } catch {
+        /* ignore */
+      }
+    }
+    pull();
+    const t = setInterval(pull, 5000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [projectId]);
+
+  if (!projectId) {
+    return (
       <div className="rounded-2xl border border-black/10 bg-white">
         <EmptyPanel
           icon={<Activity size={20} />}
-          title="No signals yet"
-          hint="Once the page is live and outreach goes out, traction lands here. The Analyst watches these to call the next play."
+          title="No data yet"
+          hint="Build the landing page first. Once it's live, every form submission flows into Cabana's database and shows up here in real time."
         />
       </div>
+    );
+  }
+
+  const total = counts.reduce((n, c) => n + c.count, 0);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        <div className="rounded-xl border border-black/10 bg-white px-3 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-black/30">Captured</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: SURF }}>{total}</p>
+        </div>
+        {counts.slice(0, 3).map((c) => (
+          <div key={c.collection} className="rounded-xl border border-black/10 bg-white px-3 py-3">
+            <p className="text-[10px] uppercase tracking-wide text-black/30 truncate">{c.collection}</p>
+            <p className="mt-1 text-2xl font-semibold text-black/70 tabular-nums">{c.count}</p>
+          </div>
+        ))}
+        {counts.length === 0 && [0, 1, 2].map((i) => (
+          <div key={i} className="rounded-xl border border-black/10 bg-white px-3 py-3">
+            <p className="text-[10px] uppercase tracking-wide text-black/30">—</p>
+            <p className="mt-1 text-2xl font-semibold text-black/15 tabular-nums">0</p>
+          </div>
+        ))}
+      </div>
+
+      {docs.length === 0 ? (
+        <div className="rounded-2xl border border-black/10 bg-white">
+          <EmptyPanel
+            icon={<Activity size={20} />}
+            title="Listening for submissions…"
+            hint="Share the live page. Every form submission lands here — the Analyst watches these to call the next play."
+          />
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-black/10 bg-white divide-y divide-black/5">
+          {docs.map((d) => (
+            <div key={d.id} className="px-4 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] uppercase tracking-wide text-black/30">{d.collection}</span>
+                <span className="text-[10px] text-black/30">{new Date(d.created_at).toLocaleString()}</span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-black/80">
+                {Object.entries(d.data).map(([k, v]) => (
+                  <span key={k}>
+                    <span className="text-black/40">{k}:</span> {String(v)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

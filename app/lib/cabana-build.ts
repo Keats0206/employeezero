@@ -9,6 +9,9 @@ export type BuildState = {
   phase?: string;
   html?: string;
   url?: string | null;
+  // The generated-app project this page captures data into. Persisted with the
+  // build so a rebuild reuses it and leads accrue to one project.
+  projectId?: string;
   error?: string;
 };
 
@@ -37,13 +40,14 @@ export async function streamBuild(
   onState: (patch: Partial<BuildState>) => void,
   signal?: AbortSignal,
   model?: string,
+  projectId?: string,
 ) {
   onState({ status: "building", phase: "Starting the Builder…", error: undefined });
 
   const res = await fetch("/api/cabana/deploy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ outputs: assembleOutputs(crew, chosenHeadline), taskType: "new_site", model }),
+    body: JSON.stringify({ outputs: assembleOutputs(crew, chosenHeadline), taskType: "new_site", model, projectId }),
     signal,
   });
 
@@ -85,7 +89,13 @@ export async function streamBuild(
           onState({ html: codeBuf });
           break;
         case "complete":
-          onState({ status: "done", html: String(event.html ?? ""), url: (event.url as string | null) ?? null, phase: undefined });
+          onState({
+            status: "done",
+            html: String(event.html ?? ""),
+            url: (event.url as string | null) ?? null,
+            projectId: (event.projectId as string | undefined) ?? undefined,
+            phase: undefined,
+          });
           break;
         case "deploy_error":
           // The page HTML still rendered; deploy to the sandbox failed.
