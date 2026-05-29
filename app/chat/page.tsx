@@ -325,22 +325,23 @@ export default function ChatPage() {
           <div className="max-w-2xl mx-auto px-4 py-4">
             <PromptInput
               onSubmit={handlePromptSubmit}
-              className="rounded-3xl border border-black/15 transition-colors focus-within:border-black/40"
+              className="overflow-hidden rounded-3xl border border-black/15 transition-colors focus-within:border-black/40 [&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:focus-within:ring-0"
             >
               <PromptInputBody>
                 <PromptInputTextarea
                   placeholder="Message your Chief of Staff…"
                   disabled={busy}
+                  className="min-h-[52px] px-4 pt-3"
                 />
-                <PromptInputFooter className="px-2 pb-2">
-                  <span className="text-xs text-black/30">⏎ to send · ⇧⏎ for newline</span>
-                  <PromptInputSubmit
-                    status={status}
-                    disabled={busy}
-                    className="bg-black text-white hover:bg-black/80"
-                  />
-                </PromptInputFooter>
               </PromptInputBody>
+              <PromptInputFooter className="px-3 pb-2.5">
+                <span className="text-xs text-black/30">⏎ to send · ⇧⏎ for newline</span>
+                <PromptInputSubmit
+                  status={status}
+                  disabled={busy}
+                  className="bg-black text-white hover:bg-black/80"
+                />
+              </PromptInputFooter>
             </PromptInput>
             <p className="mt-2 text-center text-xs text-black/30">
               The CoS runs the crew — it never deploys without your approval.
