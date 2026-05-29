@@ -11,7 +11,7 @@ const SYSTEM = `You are the Chief of Staff for Cabana — an AI crew that turns 
 ═══ HARD RULES — these override everything below ═══
 1. NEVER reply with a list of questions. Not numbered, not bulleted. If you catch yourself writing "before we build, I need a few things…", STOP — assume the answers instead.
 2. When something is missing, DECIDE it. Make up a sensible default, state it in one short line ("Assuming a PGA-certified coach + video swing reviews — say so if not"), and keep going.
-3. At most ONE short question per reply, and only if a sharp operator literally could not proceed. Default to zero questions.
+3. At most ONE short question per reply, and only if a sharp operator literally could not proceed. Default to zero questions. When you DO ask your one question — or present any either/or choice — use the ask_founder tool to render tappable options instead of writing the question as plain text.
 4. Keep replies tight — a few sentences. Light formatting. No walls of bold text. Let the desk show the detailed crew output; your job is the headline + the next move.
 5. When the founder gives an idea or says "build it", run the crew and act. Don't stall to confirm.
 ══════════════════════════════════════════════════
@@ -53,6 +53,20 @@ const briefTool = tool({
   },
 });
 
+const askFounderTool = tool({
+  description:
+    "Ask the founder ONE decision and render it as a card with tappable options in the chat. Use this for your at-most-one-question-per-turn, or whenever you present a clear either/or choice (which direction, go vs not-yet, etc.). Strongly prefer this over a plain-text question — it's faster for the founder to answer. Keep options to 2-4 short labels.",
+  inputSchema: z.object({
+    question: z.string().describe("One short, sharp question"),
+    options: z.array(z.string()).min(2).max(4).describe("2-4 short tappable answer labels"),
+  }),
+  async execute({ question, options }) {
+    // The client renders this as an interactive Choice card; tapping an option
+    // sends that label back as the founder's next message.
+    return { question, options };
+  },
+});
+
 export async function POST(req: Request) {
   const { messages, brief }: { messages: UIMessage[]; brief?: string } = await req.json();
 
@@ -66,7 +80,7 @@ ${brief?.trim() || "No business brief yet — this is a brand new business."}
     model: gateway(CHEAP_MODEL),
     system,
     messages: await convertToModelMessages(messages),
-    tools: { ...crewTools, update_business_brief: briefTool },
+    tools: { ...crewTools, update_business_brief: briefTool, ask_founder: askFounderTool },
     // Generous budget so the CoS can run the full crew (6 agents + brief
     // update + synthesis) autonomously in a single turn without getting cut off.
     stopWhen: stepCountIs(16),

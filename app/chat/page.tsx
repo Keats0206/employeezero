@@ -310,7 +310,7 @@ export default function ChatPage() {
           <Conversation className="flex-1">
             <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-4 py-8">
               {messages.map((m) => (
-                <MessageView key={m.id} message={m} streaming={busy} />
+                <MessageView key={m.id} message={m} streaming={busy} onAnswer={submitText} busy={busy} />
               ))}
               {status === "submitted" && (
                 <div className="text-sm text-black/40">Chief of Staff is thinking…</div>
@@ -396,9 +396,13 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
 function MessageView({
   message,
   streaming,
+  onAnswer,
+  busy,
 }: {
   message: ReturnType<typeof useChat>["messages"][number];
   streaming: boolean;
+  onAnswer: (text: string) => void;
+  busy: boolean;
 }) {
   const isUser = message.role === "user";
 
@@ -438,18 +442,81 @@ function MessageView({
               </Reasoning>
             );
           }
-          // Tool calls render as crew activity cards.
+          // Tool calls render as chat components. A small registry maps certain
+          // tools to purpose-built, sometimes-interactive views; everything else
+          // falls back to the generic crew activity card.
           if (part.type.startsWith("tool-")) {
             const toolName = part.type.slice("tool-".length);
-            return (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              <ToolCard key={i} toolName={toolName} part={part as any} />
-            );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const p = part as any;
+            if (toolName === "ask_founder" && p.output) {
+              return (
+                <ChoiceCard
+                  key={i}
+                  question={String(p.output.question ?? "")}
+                  options={(p.output.options as string[]) ?? []}
+                  onAnswer={onAnswer}
+                  disabled={busy}
+                />
+              );
+            }
+            return <ToolCard key={i} toolName={toolName} part={p} />;
           }
           return null;
         })}
       </MessageContent>
     </Message>
+  );
+}
+
+// Interactive chat component: the CoS asks one decision and we render tappable
+// options. Tapping sends that label back as the founder's next message, so the
+// conversation just continues — no free-typing needed.
+function ChoiceCard({
+  question,
+  options,
+  onAnswer,
+  disabled,
+}: {
+  question: string;
+  options: string[];
+  onAnswer: (text: string) => void;
+  disabled: boolean;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+
+  function choose(opt: string) {
+    if (picked || disabled) return;
+    setPicked(opt);
+    onAnswer(opt);
+  }
+
+  return (
+    <div className="rounded-2xl border border-black/10 overflow-hidden">
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-black/80">{question}</p>
+      </div>
+      <div className="px-4 pb-4 flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const isPicked = picked === opt;
+          return (
+            <button
+              key={opt}
+              onClick={() => choose(opt)}
+              disabled={!!picked || disabled}
+              className="text-sm px-4 py-2 rounded-full border transition-colors disabled:opacity-50"
+              style={
+                isPicked
+                  ? { background: SURF, borderColor: SURF, color: "#fff" }
+                  : { borderColor: "rgba(0,0,0,0.15)" }
+              }
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
