@@ -331,7 +331,7 @@ export default function ChatPage() {
                 <PromptInputTextarea
                   placeholder="Message your Chief of Staff…"
                   disabled={busy}
-                  className="min-h-[52px] px-4 pt-3"
+                  className="min-h-[52px] px-4 pt-3 text-[15px]"
                 />
               </PromptInputBody>
               <PromptInputFooter className="px-3 pb-2.5">
@@ -413,7 +413,7 @@ function MessageView({
       .join("");
     return (
       <Message from="user">
-        <MessageContent>
+        <MessageContent className="text-[15px]">
           <span className="whitespace-pre-wrap">{text}</span>
         </MessageContent>
       </Message>
@@ -428,7 +428,7 @@ function MessageView({
             return (
               <MessageResponse
                 key={i}
-                className="prose prose-sm max-w-none leading-relaxed text-black/90 prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-2"
+                className="prose max-w-none text-[15px] leading-relaxed text-black/90 prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-2"
               >
                 {(part as { text: string }).text}
               </MessageResponse>
