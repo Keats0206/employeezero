@@ -27,12 +27,43 @@ type Listener = (step: Step | { done: true; status: RunStatus }) => void;
 const runs = new Map<string, Run>();
 const listeners = new Map<string, Set<Listener>>();
 
+function isActiveStatus(status: RunStatus): boolean {
+  return status === "queued" || status === "running";
+}
+
 export function listRuns(): Run[] {
   return [...runs.values()].sort((a, b) => b.created_at - a.created_at);
 }
 
 export function getRun(id: string): Run | undefined {
   return runs.get(id);
+}
+
+export function removeRun(id: string, opts?: { allowActive?: boolean }): { removed: boolean; reason?: string } {
+  const run = runs.get(id);
+  if (!run) return { removed: false, reason: "not_found" };
+  const allowActive = opts?.allowActive ?? false;
+  if (!allowActive && isActiveStatus(run.status)) {
+    return { removed: false, reason: "run_active" };
+  }
+  runs.delete(id);
+  listeners.delete(id);
+  return { removed: true };
+}
+
+export function removeNonRunningRuns(): { removed: number; skippedActive: number } {
+  let removed = 0;
+  let skippedActive = 0;
+  for (const [id, run] of runs.entries()) {
+    if (isActiveStatus(run.status)) {
+      skippedActive += 1;
+      continue;
+    }
+    runs.delete(id);
+    listeners.delete(id);
+    removed += 1;
+  }
+  return { removed, skippedActive };
 }
 
 export function subscribe(id: string, fn: Listener): () => void {

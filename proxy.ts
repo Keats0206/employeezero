@@ -11,9 +11,6 @@ export default function middleware(req: NextRequest) {
     req.cookies.get(ONBOARDING_COOKIE)?.value === "1";
 
   if (pathname === "/onboarding") {
-    if (onboardingDone) {
-      return NextResponse.redirect(new URL("/inbox", req.url));
-    }
     return NextResponse.next();
   }
 

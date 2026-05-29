@@ -2,12 +2,14 @@
 
 import { SessionProvider } from "next-auth/react";
 import type { ReactNode } from "react";
-import { ChatProvider } from "./components/ChatContext";
+import { ThemeProvider } from "./components/ThemeProvider";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
-      <ChatProvider>{children}</ChatProvider>
+      <ThemeProvider>
+        {children}
+      </ThemeProvider>
     </SessionProvider>
   );
 }

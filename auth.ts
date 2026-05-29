@@ -1,44 +1,47 @@
 import type { NextAuthOptions } from "next-auth";
-import EmailProvider from "next-auth/providers/email";
-import { Resend } from "resend";
-import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import { db, schema } from "@/app/lib/db";
+import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 
-const resendApiKey = process.env.RESEND_API_KEY ?? "";
-const emailFrom = process.env.EMAIL_FROM ?? "noreply@example.com";
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+const useGoogle = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 export const authOptions: NextAuthOptions = {
-  adapter: DrizzleAdapter(db, {
-    usersTable: schema.users,
-    accountsTable: schema.accounts,
-    sessionsTable: schema.sessions,
-    verificationTokensTable: schema.verificationTokens,
-  }),
   providers: [
-    EmailProvider({
-      from: emailFrom,
-      maxAge: 10 * 60,
-      async sendVerificationRequest({ identifier, url }) {
-        if (!resend) {
-          console.log(`[auth] sign-in link for ${identifier}: ${url}`);
-          return;
-        }
-        const result = await resend.emails.send({
-          from: emailFrom,
-          to: identifier,
-          subject: "Sign in to employeezero",
-          html: `<p>Click the secure sign-in link below:</p><p><a href="${url}">Sign in</a></p><p>This link expires in 10 minutes.</p>`,
-          text: `Sign in to employeezero:\n${url}\n\nThis link expires in 10 minutes.`,
-        });
-
-        if (result.error) {
-          throw new Error(`Resend error: ${result.error.message}`);
-        }
+    ...(useGoogle
+      ? [GoogleProvider({
+          clientId: process.env.GOOGLE_CLIENT_ID!,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        })]
+      : []),
+    // Demo login — works without OAuth env vars
+    CredentialsProvider({
+      name: "Demo",
+      credentials: {
+        email: { label: "Email", type: "email", placeholder: "you@example.com" },
+      },
+      async authorize(credentials) {
+        const email = credentials?.email?.trim();
+        if (!email) return null;
+        return {
+          id: `demo-${email.replace(/[^a-z0-9]/gi, "-")}`,
+          name: email.split("@")[0],
+          email,
+        };
       },
     }),
   ],
-  session: {
-    strategy: "jwt",
+  session: { strategy: "jwt" },
+  pages: { signIn: "/sign-in" },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user?.id) token.sub = user.id;
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as typeof session.user & { id: string }).id =
+          typeof token.sub === "string" ? token.sub : "demo";
+      }
+      return session;
+    },
   },
 };
