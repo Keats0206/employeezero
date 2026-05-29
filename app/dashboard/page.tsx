@@ -1,35 +1,70 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight, Zap, BarChart2, CheckCircle, Lock,
-  ChevronRight, Loader2, Plus
+  BarChart2, Lock, ChevronRight, Loader2, Plus
 } from "lucide-react";
 import {
   AGENT_ORDER, AGENT_META, AGENT_PALETTE, loadSession,
   type AgentId, type AgentOutputs
 } from "@/app/lib/cabana-config";
-import { AgentCard } from "@/app/components/cabana/AgentCard";
-import { DevNav } from "@/app/components/cabana/DevNav";
 
 type Play = { id: string; title: string; agent: AgentId; why: string; status: "pending" | "approved" | "rejected"; output?: string };
 type FeedItem = { agent: AgentId | "system"; text: string; time: string; fresh?: boolean };
 type DashTab = "plays" | "assets" | "outreach" | "content";
 type CopiedMap = Record<string, boolean>;
+type DashboardSession = { idea: string; outputs: AgentOutputs };
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { idea, outputs } = loadSession();
+  const [session, setSession] = useState<DashboardSession | null>(null);
+  const [checkedSession, setCheckedSession] = useState(false);
 
-  // Redirect if no session
   useEffect(() => {
-    if (!idea) router.replace("/");
-  }, [idea]);
+    const loaded = loadSession();
+    setSession(loaded.idea ? loaded : null);
+    setCheckedSession(true);
+  }, []);
 
-  if (!idea) return null;
+  if (!checkedSession) return <DashboardLoading />;
+  if (!session) return <EmptyDashboard />;
 
-  return <Dashboard idea={idea} outputs={outputs} />;
+  return <Dashboard idea={session.idea} outputs={session.outputs} />;
+}
+
+function DashboardLoading() {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-3 text-sm text-gray-500 shadow-sm">
+        <Loader2 size={15} className="animate-spin text-violet-600" />
+        Loading Cabana...
+      </div>
+    </div>
+  );
+}
+
+function EmptyDashboard() {
+  const router = useRouter();
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-md bg-white border border-gray-100 rounded-3xl p-8 text-center shadow-sm">
+        <div className="w-11 h-11 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center mx-auto mb-4">
+          <Plus size={20} />
+        </div>
+        <h1 className="text-xl font-bold tracking-tight mb-2">No Cabana loaded</h1>
+        <p className="text-sm text-gray-500 mb-6">
+          Generate a preview first, then launch it to open the sprint dashboard.
+        </p>
+        <button
+          onClick={() => router.push("/")}
+          className="w-full bg-gray-900 text-white text-sm font-semibold px-4 py-3 rounded-xl hover:bg-gray-700 transition-colors"
+        >
+          Start a Cabana
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Dashboard({ idea, outputs }: { idea: string; outputs: AgentOutputs }) {
@@ -414,7 +449,6 @@ function Dashboard({ idea, outputs }: { idea: string; outputs: AgentOutputs }) {
           </button>
         </div>
       </div>
-      <DevNav />
     </div>
   );
 }

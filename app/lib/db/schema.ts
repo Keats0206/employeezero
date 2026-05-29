@@ -115,6 +115,20 @@ export const signals = pgTable("signals", {
   created_at: now(),
 });
 
+export const cabanaWorkbenchStates = pgTable("cabana_workbench_states", {
+  id: id(),
+  user_id: text("user_id").notNull().default("demo"),
+  idea: text("idea").notNull(),
+  company_context: text("company_context").notNull().default(""),
+  sprint_plan: text("sprint_plan").notNull().default(""),
+  actions_json: text("actions_json").notNull().default("[]"),
+  loop_runs_json: text("loop_runs_json").notNull().default("[]"),
+  signals_json: text("signals_json").notNull().default("{}"),
+  ai_calls_json: text("ai_calls_json").notNull().default("[]"),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  created_at: now(),
+});
+
 // --- Shared infra tables (kept from original) ---
 
 export const agentRuns = pgTable("agent_runs", {

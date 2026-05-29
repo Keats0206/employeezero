@@ -35,8 +35,8 @@ function SignInForm() {
     <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <span className="font-bold text-xl tracking-tight">Cabana</span>
-          <p className="text-gray-500 text-sm mt-2">Sign in to your crew</p>
+          <span className="font-bold text-2xl tracking-[-0.03em]">Cabana</span>
+          <p className="text-black/40 text-sm mt-2">Sign in to your crew</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -45,20 +45,20 @@ function SignInForm() {
             value={email}
             onChange={e => setEmail(e.target.value)}
             placeholder="your@email.com"
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50"
+            className="w-full border border-black/10 rounded-full px-5 py-3.5 text-sm focus:outline-none focus:border-black/30 bg-white transition-colors"
             autoFocus
           />
           {error && <p className="text-xs text-red-500">{error}</p>}
           <button
             type="submit"
             disabled={!email.trim() || loading}
-            className="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"
+            className="w-full bg-black hover:bg-black/80 disabled:opacity-30 text-white font-semibold py-3.5 rounded-full text-sm flex items-center justify-center gap-2 transition-colors"
           >
             {loading ? <><Loader2 size={14} className="animate-spin" /> Signing in…</> : <>Continue <ArrowRight size={14} /></>}
           </button>
         </form>
 
-        <p className="text-xs text-gray-400 text-center mt-6">
+        <p className="text-xs text-black/30 text-center mt-6">
           No password needed for the demo. Any email works.
         </p>
       </div>

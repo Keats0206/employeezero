@@ -58,6 +58,18 @@
   --status-error: oklch(0.577 0.245 27.325);
   --status-warning: oklch(0.745 0.165 69.2);
   --status-info: oklch(0.61 0.2 264.4);
+
+  /* Brand — Turquoise Surf. One owned color on a black & white canvas. */
+  --brand: #23b5d3;
+  --brand-hover: #1a99b5;
+  --brand-fg: #ffffff;
+
+  /* Beach palette — secondary colors for crew cards / accents */
+  --beach-green: #0cf574;  /* Spring Green */
+  --beach-blue: #304c89;   /* Dusk Blue */
+  --beach-turquoise: #23b5d3; /* Turquoise Surf */
+  --beach-sand: #d8bfaa;   /* Desert Sand */
+  --beach-sun: #f5cb5c;    /* Tuscan Sun */
 }
 
 @theme inline {
@@ -67,6 +79,14 @@
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-accent-bg: var(--accent-bg);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-beach-green: var(--beach-green);
+  --color-beach-blue: var(--beach-blue);
+  --color-beach-turquoise: var(--beach-turquoise);
+  --color-beach-sand: var(--beach-sand);
+  --color-beach-sun: var(--beach-sun);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading: var(--font-sans);

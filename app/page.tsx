@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Sparkles } from "lucide-react";
-import { AGENT_ORDER, AGENT_META, AGENT_PALETTE, EXAMPLES } from "@/app/lib/cabana-config";
-import { DevNav } from "@/app/components/cabana/DevNav";
+import { ArrowRight } from "lucide-react";
+import { AGENT_ORDER, AGENT_META, EXAMPLES } from "@/app/lib/cabana-config";
+
+const BEACH_COLORS = ["#23b5d3", "#0cf574", "#f5cb5c", "#d8bfaa", "#304c89", "#23b5d3"];
 
 export default function LandingPage() {
   const [idea, setIdea] = useState("");
@@ -22,15 +23,16 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+    <div className="min-h-screen bg-white text-black flex flex-col">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 py-5 max-w-6xl mx-auto w-full">
         <span className="font-bold text-lg tracking-tight">Cabana</span>
-        <div className="flex items-center gap-4 text-sm text-gray-500">
-          <a href="#how" className="hover:text-gray-900">How it works</a>
-          <a href="#crew" className="hover:text-gray-900">The crew</a>
+        <div className="flex items-center gap-1 text-sm">
+          <button onClick={() => router.push("/ethos")} className="px-4 py-2 rounded-full hover:bg-black/5 transition-colors">Ethos</button>
+          <button onClick={() => router.push("/about")} className="px-4 py-2 rounded-full hover:bg-black/5 transition-colors">About</button>
           <button
             onClick={() => router.push("/sign-in")}
-            className="bg-black text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-gray-800 transition-colors"
+            className="ml-1 bg-black text-white px-5 py-2 rounded-full font-medium hover:bg-black/80 transition-colors"
           >
             Sign in
           </button>
@@ -38,92 +40,74 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 pt-16 pb-24 text-center max-w-3xl mx-auto w-full">
-        <div className="inline-flex items-center gap-2 bg-violet-50 text-violet-700 text-xs font-medium px-3 py-1.5 rounded-full mb-8">
-          <Sparkles size={12} />
-          Your AI crew. First sale focus.
-        </div>
-        <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-[1.08] mb-6">
-          Give Cabana an idea.<br />
-          <span className="text-violet-600">Your crew starts building.</span>
-        </h1>
-        <p className="text-lg text-gray-500 mb-10 max-w-xl">
-          Cabana spins up 6 AI agents that research, build, market, and test your internet business idea — so you can move toward your first sale.
+      <div className="flex-1 flex flex-col items-center justify-center px-6 pt-12 pb-20 text-center max-w-4xl mx-auto w-full">
+        <p className="text-sm font-medium text-black/40 mb-6 tracking-tight">
+          Your AI crew. One goal: <span className="text-[var(--brand)]">your first sale.</span>
         </p>
 
+        <h1 className="text-6xl sm:text-7xl font-bold tracking-[-0.03em] leading-[0.95] mb-8">
+          Give Cabana<br />an idea.
+        </h1>
+        <p className="text-xl text-black/50 mb-12 max-w-lg tracking-tight">
+          Six agents research, build, market, and ship your idea — straight toward a paying customer.
+        </p>
+
+        {/* Input */}
         <div className="w-full max-w-xl">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex items-center gap-2 border border-black/10 rounded-full p-2 pl-6 focus-within:border-black/30 transition-colors">
             <input
               type="text"
               value={idea}
               onChange={e => setIdea(e.target.value)}
               onKeyDown={e => e.key === "Enter" && launch(idea)}
               placeholder={EXAMPLES[placeholder]}
-              className="flex-1 border border-gray-200 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 placeholder:text-gray-400"
+              className="flex-1 bg-transparent text-base focus:outline-none placeholder:text-black/30"
             />
             <button
               onClick={() => launch(idea)}
               disabled={!idea.trim()}
-              className="bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-3.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+              className="bg-[var(--brand)] hover:bg-[var(--brand-hover)] disabled:opacity-30 text-white w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-colors"
+              aria-label="Launch crew"
             >
-              Launch my crew <ArrowRight size={16} />
+              <ArrowRight size={18} />
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-3">Free to generate a preview. No credit card needed.</p>
+          <p className="text-xs text-black/30 mt-4">Free to generate a preview. No card needed.</p>
         </div>
 
-        {/* Clickable examples */}
-        <div className="w-full max-w-xl mt-6">
-          <p className="text-xs text-gray-400 mb-3">Try one of these:</p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {EXAMPLES.map(ex => (
-              <button
-                key={ex}
-                onClick={() => launch(ex)}
-                className="text-xs bg-gray-50 hover:bg-violet-50 border border-gray-200 hover:border-violet-300 text-gray-600 hover:text-violet-700 px-3 py-2 rounded-full transition-colors"
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
+        {/* Examples */}
+        <div className="flex flex-wrap gap-2 justify-center mt-8 max-w-xl">
+          {EXAMPLES.map(ex => (
+            <button
+              key={ex}
+              onClick={() => launch(ex)}
+              className="text-sm border border-black/10 hover:border-black/30 text-black/60 hover:text-black px-4 py-2 rounded-full transition-colors"
+            >
+              {ex}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* How it works */}
-      <div id="how" className="border-t border-gray-100 py-20 px-6">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 text-center mb-12">How it works</p>
-          <div className="grid sm:grid-cols-4 gap-8">
-            {[
-              { n: "1", title: "Drop in an idea", body: "Tell Cabana what you want to build, sell, or test." },
-              { n: "2", title: "Crew comes online", body: "Scout, Strategist, Builder, Seller, Creator, and Analyst start working." },
-              { n: "3", title: "Review the plan",  body: "Cabana generates offers, a page, outreach, content, and a path to first revenue." },
-              { n: "4", title: "Launch",            body: "Approve plays, publish the page, send messages, track signals." },
-            ].map(s => (
-              <div key={s.n} className="flex flex-col gap-2">
-                <span className="w-8 h-8 rounded-full bg-violet-100 text-violet-600 text-sm font-bold flex items-center justify-center">{s.n}</span>
-                <h3 className="font-semibold text-sm">{s.title}</h3>
-                <p className="text-sm text-gray-500">{s.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Crew */}
-      <div id="crew" className="bg-gray-50 py-20 px-6">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 text-center mb-4">Meet your First Sale Crew</p>
-          <h2 className="text-3xl font-bold text-center mb-12">6 agents. One goal.</h2>
-          <div className="grid sm:grid-cols-3 gap-4">
-            {AGENT_ORDER.map(id => {
+      {/* The crew — black section, big and bold */}
+      <div className="bg-black text-white py-28 px-6">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-sm font-medium text-white/40 mb-3">Meet your crew</p>
+          <h2 className="text-5xl sm:text-6xl font-bold tracking-[-0.03em] mb-16 leading-none">
+            Six agents.<br />One goal.
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/10 rounded-3xl overflow-hidden">
+            {AGENT_ORDER.map((id, i) => {
               const m = AGENT_META[id];
-              const p = AGENT_PALETTE[id];
+              const color = BEACH_COLORS[i % BEACH_COLORS.length];
               return (
-                <div key={id} className={`${p.bg} border ${p.border} rounded-xl p-5`}>
-                  <div className={`w-9 h-9 rounded-lg ${p.iconBg} flex items-center justify-center text-lg mb-3`}>{m.icon}</div>
-                  <h3 className={`font-semibold text-sm mb-1 ${p.iconText}`}>{m.name}</h3>
-                  <p className="text-sm text-gray-600">{m.role}</p>
+                <div key={id} className="bg-black p-8 flex flex-col gap-3 group hover:bg-white/[0.04] transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="text-sm font-mono text-white/30">0{i + 1}</span>
+                  </div>
+                  <h3 className="text-2xl font-bold tracking-tight mt-2" style={{ color }}>{m.name}</h3>
+                  <p className="text-white/50">{m.role}</p>
                 </div>
               );
             })}
@@ -131,30 +115,27 @@ export default function LandingPage() {
         </div>
       </div>
 
-      {/* Bottom CTA */}
-      <div className="py-20 px-6 text-center">
-        <h2 className="text-3xl font-bold mb-3">Planning is free.</h2>
-        <p className="text-gray-500 mb-8">Launching takes a crew.</p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-xl mx-auto">
-          <input
-            type="text"
-            value={idea}
-            onChange={e => setIdea(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && launch(idea)}
-            placeholder="Describe your idea…"
-            className="flex-1 border border-gray-200 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50"
-          />
+      {/* First sale focus — the money moment */}
+      <div className="bg-white py-28 px-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-sm font-medium text-black/40 mb-6">The only metric that matters</p>
+          <h2 className="text-5xl sm:text-7xl font-bold tracking-[-0.03em] leading-none mb-6">
+            Your first<br /><span className="text-[var(--brand)]">$29.</span>
+          </h2>
+          <p className="text-xl text-black/50 max-w-md mx-auto mb-12 tracking-tight">
+            Not impressions. Not followers. A stranger paying you money. That's what the crew points at.
+          </p>
           <button
-            onClick={() => launch(idea)}
-            disabled={!idea.trim()}
-            className="bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white px-6 py-3.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setTimeout(() => document.querySelector("input")?.focus(), 400);
+            }}
+            className="bg-black text-white text-lg font-semibold px-8 py-4 rounded-full hover:bg-black/80 transition-colors inline-flex items-center gap-2"
           >
-            Launch my crew <ArrowRight size={16} />
+            Start building <ArrowRight size={18} />
           </button>
         </div>
       </div>
-
-      <DevNav />
     </div>
   );
 }

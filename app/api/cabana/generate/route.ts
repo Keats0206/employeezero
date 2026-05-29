@@ -1,18 +1,17 @@
-import { gateway, generateObject } from "ai";
+import { gateway, streamObject } from "ai";
 import { z } from "zod";
+import { AGENT_MODELS, estimateCost, type AgentId } from "@/app/lib/cabana-config";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MODEL = "deepseek/deepseek-v3.2";
-
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const ScoutSchema = z.object({
-  pains: z.array(z.string()).length(3).describe("3 specific customer pain statements in the customer's own voice"),
-  channels: z.array(z.string()).length(3).describe("3 specific communities or platforms where buyers hang out"),
-  competitors: z.array(z.string()).length(2).describe("2 existing solutions or alternatives buyers currently use"),
-  keywords: z.array(z.string()).length(4).describe("4 search terms this customer actually types"),
+  pains: z.array(z.string()).min(2).max(4).describe("3 specific customer pain statements in the customer's own voice"),
+  channels: z.array(z.string()).min(2).max(4).describe("3 specific communities or platforms where buyers hang out"),
+  competitors: z.array(z.string()).min(2).max(3).describe("2 existing solutions or alternatives buyers currently use"),
+  keywords: z.array(z.string()).min(3).max(5).describe("4 search terms this customer actually types"),
 });
 
 const StrategistSchema = z.object({
@@ -33,67 +32,20 @@ const BuilderSchema = z.object({
 });
 
 const SellerSchema = z.object({
-  messages: z.array(z.string()).length(3).describe("3 short outreach messages — conversational, not salesy, under 2 sentences each"),
+  messages: z.array(z.string()).min(2).max(4).describe("3 short outreach messages — conversational, not salesy, under 2 sentences each"),
 });
 
 const CreatorSchema = z.object({
-  hooks: z.array(z.string()).length(3).describe("3 scroll-stopping content hooks in quoted title format"),
+  hooks: z.array(z.string()).min(2).max(4).describe("3 scroll-stopping content hooks in quoted title format"),
   script_opener: z.string().describe("Opening line for a 30-second video script"),
 });
 
 const AnalystSchema = z.object({
   recommended_path: z.string().describe("Fastest path to first revenue signal — 1-2 sentences, crew does the work"),
   next_play: z.string().describe("Specific next action the crew takes in the next 24 hours"),
-  signals_to_watch: z.array(z.string()).length(3).describe("3 specific signals that mean this is working"),
+  signals_to_watch: z.array(z.string()).min(2).max(4).describe("3 specific signals that mean this is working"),
   verdict: z.enum(["launch", "validate_first", "pivot"]),
 });
-
-// ─── Progress lines per agent ─────────────────────────────────────────────────
-
-const PROGRESS: Record<string, string[]> = {
-  scout: [
-    "Scanning communities for pain patterns…",
-    "Identifying where buyers are already gathering…",
-    "Extracting recurring frustrations…",
-    "Mapping competitor landscape…",
-    "Pain clusters identified.",
-  ],
-  strategist: [
-    "Reading Scout's findings…",
-    "Designing the simplest possible first offer…",
-    "Stress-testing pricing against the pain…",
-    "Identifying the highest-leverage channel…",
-    "Offer locked.",
-  ],
-  builder: [
-    "Reading Strategist's offer brief…",
-    "Drafting outcome-first headline…",
-    "Writing pain hook and subheadline…",
-    "Generating CTA copy…",
-    "Landing page draft ready.",
-  ],
-  seller: [
-    "Building target customer profile…",
-    "Identifying best outreach angles…",
-    "Drafting message 1 — conversational, no pitch…",
-    "Drafting messages 2 and 3…",
-    "Outreach batch ready.",
-  ],
-  creator: [
-    "Scanning pain clusters for hook angles…",
-    "Generating pattern-interrupt hooks…",
-    "Writing hooks 2 and 3…",
-    "Drafting video script opener…",
-    "Content batch ready.",
-  ],
-  analyst: [
-    "Reviewing all agent outputs…",
-    "Assessing market signal strength…",
-    "Calculating fastest path to revenue…",
-    "Identifying blockers…",
-    "Verdict ready.",
-  ],
-};
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
@@ -108,112 +60,201 @@ export async function POST(req: Request) {
       const send = (obj: unknown) =>
         controller.enqueue(enc.encode("data: " + JSON.stringify(obj) + "\n\n"));
 
-      const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+      // Render a partial object into readable streaming text for the card body.
+      function previewText(partial: Record<string, unknown>): string {
+        const lines: string[] = [];
+        for (const [, value] of Object.entries(partial)) {
+          if (value == null) continue;
+          if (Array.isArray(value)) {
+            for (const v of value) if (v != null) lines.push(`• ${String(v)}`);
+          } else {
+            lines.push(String(value));
+          }
+        }
+        return lines.join("\n");
+      }
 
-      async function streamProgress(agentId: string) {
-        for (const line of PROGRESS[agentId] ?? []) {
-          send({ agent: agentId, type: "progress", text: line });
-          await sleep(500 + Math.random() * 400);
+      // Per-run accounting, summed across all agents for the complete event.
+      const totals = { inputTokens: 0, outputTokens: 0, cost: 0, ms: 0 };
+
+      // Run one agent with REAL token streaming. Emits progress (live text) then
+      // done (+stats, +usage/cost/time). Uses the model configured for its role.
+      async function runAgent<T extends Record<string, unknown>>(
+        agentId: AgentId,
+        schema: z.ZodType<T>,
+        prompt: string,
+        stats: (o: T) => { label: string; value: string }[],
+      ): Promise<T> {
+        const model = AGENT_MODELS[agentId];
+        const t0 = Date.now();
+        send({ agent: agentId, type: "start", model });
+        try {
+          const { partialObjectStream, object, usage } = streamObject({
+            model: gateway(model),
+            schema,
+            prompt,
+          });
+          for await (const partial of partialObjectStream) {
+            send({ agent: agentId, type: "progress", text: previewText(partial as Record<string, unknown>) });
+          }
+          const final = await object;
+          const u = await usage;
+          const inputTokens = u?.inputTokens ?? 0;
+          const outputTokens = u?.outputTokens ?? 0;
+          const cost = estimateCost(model, inputTokens, outputTokens);
+          const ms = Date.now() - t0;
+
+          totals.inputTokens += inputTokens;
+          totals.outputTokens += outputTokens;
+          totals.cost += cost;
+          totals.ms += ms; // wall time per agent; note parallel agents overlap
+
+          send({
+            agent: agentId, type: "done", output: final, stats: stats(final),
+            model, usage: { inputTokens, outputTokens }, cost, ms,
+          });
+          return final;
+        } catch (err) {
+          const details = err && typeof err === "object" ? err as {
+            text?: string;
+            finishReason?: string;
+            usage?: unknown;
+            cause?: unknown;
+            message?: string;
+          } : {};
+
+          const repaired = repairAgentOutput(agentId, details.text, schema);
+          if (repaired) {
+            const ms = Date.now() - t0;
+            send({
+              agent: agentId,
+              type: "done",
+              output: repaired,
+              stats: stats(repaired),
+              model,
+              usage: { inputTokens: 0, outputTokens: 0 },
+              cost: 0,
+              ms,
+              repaired: true,
+            });
+            return repaired;
+          }
+
+          send({
+            agent: agentId,
+            type: "error",
+            model,
+            message: err instanceof Error ? err.message : String(err),
+            raw: details.text,
+            finishReason: details.finishReason,
+            usage: details.usage,
+            cause: details.cause instanceof Error ? details.cause.message : undefined,
+          });
+          throw err;
+        }
+      }
+
+      function repairAgentOutput<T extends Record<string, unknown>>(
+        agentId: AgentId,
+        raw: string | undefined,
+        schema: z.ZodType<T>,
+      ): T | null {
+        if (!raw) return null;
+        try {
+          const parsed = JSON.parse(raw);
+          const wrapped =
+            agentId === "seller" && Array.isArray(parsed) ? { messages: parsed } :
+            agentId === "creator" && Array.isArray(parsed) ? { hooks: parsed, script_opener: parsed[0] ?? "" } :
+            null;
+
+          if (!wrapped) return null;
+          const result = schema.safeParse(wrapped);
+          return result.success ? result.data : null;
+        } catch {
+          return null;
         }
       }
 
       try {
         // ── Scout ─────────────────────────────────────────────────────────────
-        const scoutProgress = streamProgress("scout");
-        const [scoutResult] = await Promise.all([
-          generateObject({
-            model: gateway(MODEL),
-            schema: ScoutSchema,
-            prompt: `You are Scout — a market researcher finding the real pain behind this business idea.
+        const scout = await runAgent("scout", ScoutSchema,
+          `You are Scout — a market researcher finding the real pain behind this business idea.
 
 Idea: "${idea}"
 
 Find the real customer pain, where buyers gather, what alternatives exist, and what they search for. Be specific and grounded. Write pain statements in the customer's actual voice.`,
-          }),
-          scoutProgress,
-        ]);
-        send({ agent: "scout", type: "done", output: scoutResult.object });
+          o => [
+            { label: "Pain clusters", value: String(o.pains.length) },
+            { label: "Channels", value: String(o.channels.length) },
+            { label: "Keywords", value: String(o.keywords.length) },
+          ],
+        );
 
         // ── Strategist ────────────────────────────────────────────────────────
-        const strategistProgress = streamProgress("strategist");
-        const [strategistResult] = await Promise.all([
-          generateObject({
-            model: gateway(MODEL),
-            schema: StrategistSchema,
-            prompt: `You are Strategist — turning a rough idea into the sharpest possible first offer.
+        const s = await runAgent("strategist", StrategistSchema,
+          `You are Strategist — turning a rough idea into the sharpest possible first offer.
 
 Idea: "${idea}"
 
 Market research:
-- Customer pains: ${scoutResult.object.pains.join(" | ")}
-- Where buyers hang out: ${scoutResult.object.channels.join(", ")}
-- Current alternatives: ${scoutResult.object.competitors.join(", ")}
+- Customer pains: ${scout.pains.join(" | ")}
+- Where buyers hang out: ${scout.channels.join(", ")}
+- Current alternatives: ${scout.competitors.join(", ")}
 
 Design the simplest possible first offer to get 3 paying customers this week. Digital delivery preferred. No fulfillment complexity. Price it below the anxiety threshold.`,
-          }),
-          strategistProgress,
-        ]);
-        send({ agent: "strategist", type: "done", output: strategistResult.object });
+          o => [
+            { label: "Price", value: o.price },
+            { label: "Goal", value: o.goal },
+          ],
+        );
 
-        const s = strategistResult.object;
         const context = `Idea: "${idea}"
 Offer: ${s.offer} (${s.price})
 Target customer: ${s.icp}
 Channel: ${s.channel}
-Customer pains: ${scoutResult.object.pains.join(" | ")}`;
+Customer pains: ${scout.pains.join(" | ")}`;
 
-        // ── Builder + Seller + Creator (parallel) ─────────────────────────────
-        const [builderProgress, sellerProgress, creatorProgress] = [
-          streamProgress("builder"),
-          streamProgress("seller"),
-          streamProgress("creator"),
-        ];
-
-        const [builderResult, sellerResult, creatorResult] = await Promise.all([
-          generateObject({
-            model: gateway(MODEL),
-            schema: BuilderSchema,
-            prompt: `You are Builder — writing landing page copy that converts.
+        // ── Builder + Seller + Creator (parallel, all streaming live) ──────────
+        const [builder, seller, creator] = await Promise.all([
+          runAgent("builder", BuilderSchema,
+            `You are Builder — writing landing page copy that converts.
 
 ${context}
 
 Write a hero headline (outcome-focused, under 8 words), a supporting subheadline, a CTA button, and a pain hook sentence. Be direct. No fluff.`,
-          }),
-          generateObject({
-            model: gateway(MODEL),
-            schema: SellerSchema,
-            prompt: `You are Seller — writing outreach that feels human, not like a pitch.
+            o => [
+              { label: "Headline", value: `${o.headline.length} chars` },
+              { label: "CTA", value: o.cta },
+            ],
+          ),
+          runAgent("seller", SellerSchema,
+            `You are Seller — writing outreach that feels human, not like a pitch.
 
 ${context}
 
 Write 3 short outreach messages for people in ${s.channel}. Each under 2 sentences. Sound like a real person who made something useful, not a marketer. No "I hope this finds you well."`,
-          }),
-          generateObject({
-            model: gateway(MODEL),
-            schema: CreatorSchema,
-            prompt: `You are Creator — writing content hooks that stop the scroll.
+            o => [
+              { label: "Messages", value: String(o.messages.length) },
+              { label: "Channel", value: s.channel },
+            ],
+          ),
+          runAgent("creator", CreatorSchema,
+            `You are Creator — writing content hooks that stop the scroll.
 
 ${context}
-Pains: ${scoutResult.object.pains.join(" | ")}
+Pains: ${scout.pains.join(" | ")}
 
 Write 3 hooks in quoted title format — use curiosity gaps, pattern interrupts, or bold claims. Also write one punchy opening line for a 30-second video.`,
-          }),
-          builderProgress,
-          sellerProgress,
-          creatorProgress,
+            o => [
+              { label: "Hooks", value: String(o.hooks.length) },
+              { label: "Script", value: "1 opener" },
+            ],
+          ),
         ]);
 
-        send({ agent: "builder", type: "done", output: builderResult.object });
-        send({ agent: "seller", type: "done", output: sellerResult.object });
-        send({ agent: "creator", type: "done", output: creatorResult.object });
-
         // ── Analyst ───────────────────────────────────────────────────────────
-        const analystProgress = streamProgress("analyst");
-        const [analystResult] = await Promise.all([
-          generateObject({
-            model: gateway(MODEL),
-            schema: AnalystSchema,
-            prompt: `You are Analyst — the chief of staff deciding the fastest path to first revenue.
+        const analyst = await runAgent("analyst", AnalystSchema,
+          `You are Analyst — the chief of staff deciding the fastest path to first revenue.
 
 Idea: "${idea}"
 Offer: ${s.offer}
@@ -222,21 +263,21 @@ First priority from Strategist: ${s.firstPriority}
 Goal: ${s.goal}
 
 The crew handles all execution — don't say "you should" or "manually". Say what the crew will do. Be specific. What's the fastest path to a revenue signal? What does the crew do in the next 24 hours?`,
-          }),
-          analystProgress,
-        ]);
-        send({ agent: "analyst", type: "done", output: analystResult.object });
+          o => [
+            { label: "Verdict", value: o.verdict },
+            { label: "Signals", value: String(o.signals_to_watch.length) },
+          ],
+        );
 
         // ── Complete ──────────────────────────────────────────────────────────
         send({
           type: "complete",
-          outputs: {
-            scout:      scoutResult.object,
-            strategist: strategistResult.object,
-            builder:    builderResult.object,
-            seller:     sellerResult.object,
-            creator:    creatorResult.object,
-            analyst:    analystResult.object,
+          outputs: { scout, strategist: s, builder, seller, creator, analyst },
+          totals: {
+            inputTokens: totals.inputTokens,
+            outputTokens: totals.outputTokens,
+            totalTokens: totals.inputTokens + totals.outputTokens,
+            cost: totals.cost,
           },
         });
 

@@ -414,10 +414,6 @@ export type PromptInputActionAddAttachmentsProps = ComponentProps<
   label?: string;
 };
 
-type DropdownMenuSelectEvent = Parameters<
-  NonNullable<ComponentProps<typeof DropdownMenuItem>["onSelect"]>
->[0];
-
 export const PromptInputActionAddAttachments = ({
   label = "Add photos or files",
   ...props
@@ -425,7 +421,7 @@ export const PromptInputActionAddAttachments = ({
   const attachments = usePromptInputAttachments();
 
   const handleSelect = useCallback(
-    (e: DropdownMenuSelectEvent) => {
+    (e: Event) => {
       e.preventDefault();
       attachments.openFileDialog();
     },
@@ -433,7 +429,10 @@ export const PromptInputActionAddAttachments = ({
   );
 
   return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
+    <DropdownMenuItem
+      {...props}
+      onSelect={handleSelect as unknown as ComponentProps<typeof DropdownMenuItem>["onSelect"]}
+    >
       <ImageIcon className="mr-2 size-4" /> {label}
     </DropdownMenuItem>
   );
@@ -453,8 +452,8 @@ export const PromptInputActionAddScreenshot = ({
   const attachments = usePromptInputAttachments();
 
   const handleSelect = useCallback(
-    async (event: DropdownMenuSelectEvent) => {
-      onSelect?.(event);
+    async (event: Event) => {
+      onSelect?.(event as unknown as Parameters<NonNullable<typeof onSelect>>[0]);
       if (event.defaultPrevented) {
         return;
       }
@@ -478,7 +477,10 @@ export const PromptInputActionAddScreenshot = ({
   );
 
   return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
+    <DropdownMenuItem
+      {...props}
+      onSelect={handleSelect as unknown as ComponentProps<typeof DropdownMenuItem>["onSelect"]}
+    >
       <Monitor className="mr-2 size-4" />
       {label}
     </DropdownMenuItem>
@@ -1242,11 +1244,7 @@ export const PromptInputSubmit = ({
         onStop();
         return;
       }
-      onClick?.(
-        e as Parameters<
-          NonNullable<ComponentProps<typeof InputGroupButton>["onClick"]>
-        >[0]
-      );
+      onClick?.(e as Parameters<NonNullable<typeof onClick>>[0]);
     },
     [isGenerating, onStop, onClick]
   );
@@ -1255,7 +1253,7 @@ export const PromptInputSubmit = ({
     <InputGroupButton
       aria-label={isGenerating ? "Stop" : "Submit"}
       className={cn(className)}
-      onClick={handleClick as ComponentProps<typeof InputGroupButton>["onClick"]}
+      onClick={handleClick as unknown as ComponentProps<typeof InputGroupButton>["onClick"]}
       size={size}
       type={isGenerating && onStop ? "button" : "submit"}
       variant={variant}
@@ -1319,16 +1317,9 @@ export const PromptInputSelectValue = ({
   <SelectValue className={cn(className)} {...props} />
 );
 
-export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard> & {
-  closeDelay?: number;
-  openDelay?: number;
-};
+export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
 
-export const PromptInputHoverCard = ({
-  openDelay: _openDelay = 0,
-  closeDelay: _closeDelay = 0,
-  ...props
-}: PromptInputHoverCardProps) => (
+export const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
   <HoverCard {...props} />
 );
 
