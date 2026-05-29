@@ -462,8 +462,18 @@ function ToolCard({
   const meta = toolMeta(toolName);
   const done = part.state === "output-available";
 
+  // Controlled open state — auto-open when the tool completes, but let the user
+  // toggle. Adjusting state during render (the React-sanctioned pattern) avoids
+  // both the Base UI "changed default after init" warning and a sync effect.
+  const [open, setOpen] = useState(done);
+  const [wasDone, setWasDone] = useState(done);
+  if (done !== wasDone) {
+    setWasDone(done);
+    if (done) setOpen(true);
+  }
+
   return (
-    <Tool defaultOpen={done}>
+    <Tool open={open} onOpenChange={setOpen}>
       <ToolHeader
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         type={part.type as any}
