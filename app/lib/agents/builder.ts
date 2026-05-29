@@ -163,16 +163,19 @@ export async function runBuilderTask({
   taskType,
   brief,
   existingHtml,
+  model,
   onEvent,
 }: {
   content: SiteContent;
   taskType: BuilderTaskType;
   brief?: string;
   existingHtml?: string;
+  model?: string;
   onEvent?: (event: BuilderEvent) => void;
 }) {
+  const buildModel = model || BUILDER_MODEL;
   const send = (event: BuilderEvent) => onEvent?.(event);
-  send({ type: "phase", phase: "writing", text: `Builder writing the page with ${BUILDER_MODEL}...` });
+  send({ type: "phase", phase: "writing", text: `Builder writing the page with ${buildModel}...` });
 
   let raw = "";
   const trimmedBrief = brief?.trim() ?? "";
@@ -181,7 +184,7 @@ export async function runBuilderTask({
     ? updatePrompt(content, existingHtml.slice(0, 80_000), trimmedBrief)
     : builderPrompt(content);
 
-  const { textStream } = streamText({ model: gateway(BUILDER_MODEL), prompt });
+  const { textStream } = streamText({ model: gateway(buildModel), prompt });
   for await (const delta of textStream) {
     raw += delta;
     send({ type: "code", delta });
@@ -203,5 +206,5 @@ export async function runBuilderTask({
     ? `Builder updated ${content.businessName} from the approved work order.`
     : `Builder created the first ${content.businessName} landing page.`;
   send({ type: "complete", html, url, summary });
-  return { html, url, summary, model: BUILDER_MODEL };
+  return { html, url, summary, model: buildModel };
 }

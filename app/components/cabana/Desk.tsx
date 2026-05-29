@@ -5,7 +5,7 @@ import { Streamdown } from "streamdown";
 import { Home, Users, Globe, Activity, FolderOpen, BookText, Inbox, Target, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
 import { BRIEF_TEMPLATE, type BusinessBrief } from "@/app/lib/cabana-brief";
 import type { BuildState } from "@/app/lib/cabana-build";
-import { AGENT_META, AGENT_COLOR, AGENT_ORDER, type AgentId } from "@/app/lib/cabana-config";
+import { AGENT_META, AGENT_COLOR, AGENT_ORDER, BUILD_MODELS, type AgentId } from "@/app/lib/cabana-config";
 
 const SURF = "#23b5d3";
 
@@ -47,6 +47,8 @@ export function Desk({
   onTabChange,
   build,
   onBuild,
+  buildModel,
+  onBuildModelChange,
 }: {
   brief: BusinessBrief;
   onBriefChange: (content: string) => void;
@@ -56,6 +58,8 @@ export function Desk({
   onTabChange: (t: DeskTab) => void;
   build: BuildState;
   onBuild: (chosenHeadline?: string) => void;
+  buildModel: string;
+  onBuildModelChange: (model: string) => void;
 }) {
   const setTab = onTabChange;
   const workingCount = AGENT_ORDER.filter((id) => crew[id]?.status === "working").length;
@@ -76,7 +80,7 @@ export function Desk({
       <div className="flex-1 overflow-y-auto p-4">
         {tab === "home" && <HomePanel crew={crew} onSeeCrew={() => setTab("crew")} />}
         {tab === "crew" && <CrewPanel runs={runs} />}
-        {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} />}
+        {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
         {tab === "signals" && <SignalsPanel />}
         {tab === "artifacts" && <ArtifactsPanel />}
         {tab === "brief" && <BriefPanel brief={brief} onChange={onBriefChange} />}
@@ -405,7 +409,39 @@ function CodeStream({ code }: { code: string }) {
   );
 }
 
-function PagePanel({ crew, build, onBuild }: { crew: CrewStatus; build: BuildState; onBuild: (h?: string) => void }) {
+// Compact model picker for build requests. Lets the founder swap which model
+// the Builder runs before kicking off (or rebuilding) a page.
+function ModelPicker({ value, onChange }: { value: string; onChange: (m: string) => void }) {
+  // Show just the model name (drop the "provider/" prefix) to keep it compact.
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-[11px] rounded-full border border-black/15 px-2.5 py-1 bg-white hover:border-black/40 focus:outline-none focus:border-black/40 transition-colors cursor-pointer"
+      title="Model the Builder uses for this build"
+    >
+      {BUILD_MODELS.map((m) => (
+        <option key={m} value={m}>
+          {m.includes("/") ? m.split("/")[1] : m}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function PagePanel({
+  crew,
+  build,
+  onBuild,
+  buildModel,
+  onBuildModelChange,
+}: {
+  crew: CrewStatus;
+  build: BuildState;
+  onBuild: (h?: string) => void;
+  buildModel: string;
+  onBuildModelChange: (m: string) => void;
+}) {
   // Building — stream the page into the iframe live. Spinner only until the
   // first HTML arrives.
   if (build.status === "building") {
@@ -444,9 +480,12 @@ function PagePanel({ crew, build, onBuild }: { crew: CrewStatus; build: BuildSta
           ) : (
             <span className="ml-auto text-[11px] text-black/30">Preview (not deployed)</span>
           )}
-          <button onClick={() => onBuild()} className="ml-3 inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-black/15 hover:border-black/40 transition-colors">
-            <RotateCw size={12} /> Rebuild
-          </button>
+          <div className="ml-3 flex items-center gap-2">
+            <ModelPicker value={buildModel} onChange={onBuildModelChange} />
+            <button onClick={() => onBuild()} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-black/15 hover:border-black/40 transition-colors">
+              <RotateCw size={12} /> Rebuild
+            </button>
+          </div>
         </div>
         {build.error && <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100">{build.error}</div>}
         <iframe srcDoc={stripFence(build.html)} title="Landing page preview" className="flex-1 w-full min-h-[420px] bg-white" sandbox="allow-scripts" />
@@ -470,7 +509,15 @@ function PagePanel({ crew, build, onBuild }: { crew: CrewStatus; build: BuildSta
     | undefined;
 
   if (suggestion?.concept || suggestion?.headline_options?.length) {
-    return <BuildReady suggestion={suggestion} hasStrategy={!!crew.strategist?.output} onBuild={onBuild} />;
+    return (
+      <BuildReady
+        suggestion={suggestion}
+        hasStrategy={!!crew.strategist?.output}
+        onBuild={onBuild}
+        buildModel={buildModel}
+        onBuildModelChange={onBuildModelChange}
+      />
+    );
   }
 
   return (
@@ -488,10 +535,14 @@ function BuildReady({
   suggestion,
   hasStrategy,
   onBuild,
+  buildModel,
+  onBuildModelChange,
 }: {
   suggestion: { concept?: string; angle?: string; sections?: string[]; headline_options?: string[] };
   hasStrategy: boolean;
   onBuild: (h?: string) => void;
+  buildModel: string;
+  onBuildModelChange: (m: string) => void;
 }) {
   const options = suggestion.headline_options ?? [];
   const [chosen, setChosen] = useState<string>(options[0] ?? "");
@@ -501,6 +552,9 @@ function BuildReady({
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-black/10">
         <Hammer size={14} style={{ color: SURF }} />
         <span className="text-sm font-medium text-black/80">Ready to build</span>
+        <div className="ml-auto">
+          <ModelPicker value={buildModel} onChange={onBuildModelChange} />
+        </div>
       </div>
       <div className="p-4 space-y-4">
         {suggestion.concept && <p className="text-sm text-black/70">{suggestion.concept}</p>}

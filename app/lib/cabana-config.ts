@@ -32,6 +32,11 @@ export const MODEL_PRICING: Record<string, { in: number; out: number }> = {
   "openai/gpt-5":                { in: 1.25, out: 10 },
 };
 
+// Models the founder can pick for a build request, in the Desk's model picker.
+// Keyed off MODEL_PRICING so a new gateway model becomes selectable by adding
+// it there once.
+export const BUILD_MODELS = Object.keys(MODEL_PRICING);
+
 export function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const p = MODEL_PRICING[model];
   if (!p) return 0;
