@@ -24,11 +24,9 @@ function buildViteTemplate(content: {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${content.businessName}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    body { font-family: 'Inter', sans-serif; }
-  </style>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
 <body class="bg-white text-gray-900">
 
@@ -114,12 +112,20 @@ export async function POST(req: Request) {
         controller.enqueue(enc.encode("data: " + JSON.stringify(obj) + "\n\n"));
 
       try {
-        send({ type: "progress", text: "Spinning up build sandbox…" });
+        const snapshotId = process.env.SANDBOX_SNAPSHOT_ID;
+        send({ type: "progress", text: snapshotId ? "Booting sandbox…" : "Spinning up build sandbox…" });
 
-        const sandbox = await Sandbox.create({
-          runtime: "node22",
-          timeout: 120_000,
-        });
+        const sandbox = await Sandbox.create(
+          snapshotId
+            ? { source: { type: "snapshot", snapshotId }, timeout: 120_000 }
+            : { runtime: "node22", timeout: 120_000 }
+        );
+
+        // If no snapshot, install tools first
+        if (!snapshotId) {
+          send({ type: "progress", text: "Installing build tools (one-time)…" });
+          await sandbox.runCommand({ cmd: "npm", args: ["install", "-g", "vite", "vercel"] });
+        }
 
         send({ type: "progress", text: "Generating landing page code…" });
 
@@ -139,42 +145,46 @@ export async function POST(req: Request) {
 
         send({ type: "progress", text: "Writing files to sandbox…" });
 
-        // Write the HTML file
-        await sandbox.fs.write("/app/index.html", html);
+        await sandbox.runCommand({ cmd: "mkdir", args: ["-p", "/app"] });
 
-        // Write a minimal package.json for vite
-        await sandbox.fs.write("/app/package.json", JSON.stringify({
+        await sandbox.fs.writeFile("/app/index.html", Buffer.from(html));
+
+        await sandbox.fs.writeFile("/app/package.json", Buffer.from(JSON.stringify({
           name: "cabana-site",
           version: "1.0.0",
-          scripts: { build: "vite build", preview: "vite preview" },
-          devDependencies: { vite: "^5.0.0" },
-        }, null, 2));
+          scripts: { build: "vite build" },
+          devDependencies: { vite: "^5.0.0", tailwindcss: "^4.0.0", "@tailwindcss/vite": "^4.0.0" },
+        }, null, 2)));
 
-        // Write vite config
-        await sandbox.fs.write("/app/vite.config.js", `
+        await sandbox.fs.writeFile("/app/vite.config.js", Buffer.from(`
 import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   root: '.',
   build: { outDir: 'dist' },
+  plugins: [tailwindcss()],
 });
-`);
+`));
 
-        send({ type: "progress", text: "Installing build tools…" });
-        await sandbox.runCommand("npm", ["install"], { cwd: "/app" });
+        await sandbox.fs.writeFile("/app/style.css", Buffer.from(`
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+body { font-family: 'Inter', sans-serif; }
+`));
+
+        send({ type: "progress", text: "Installing dependencies…" });
+        await sandbox.runCommand({ cmd: "npm", args: ["install"], cwd: "/app" });
 
         send({ type: "progress", text: "Building site…" });
-        await sandbox.runCommand("npx", ["vite", "build"], { cwd: "/app" });
+        await sandbox.runCommand({ cmd: "npx", args: ["vite", "build"], cwd: "/app" });
 
         send({ type: "progress", text: "Deploying to Vercel…" });
 
-        // Install vercel CLI in sandbox and deploy
-        await sandbox.runCommand("npm", ["install", "-g", "vercel"], { cwd: "/app" });
-
-        const deployResult = await sandbox.runCommand(
-          "vercel",
-          ["deploy", "--prebuilt", "--yes", "--token", process.env.VERCEL_TOKEN ?? ""],
-          { cwd: "/app/dist", env: { VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN ?? "" } }
-        );
+        const deployResult = await sandbox.runCommand({
+          cmd: "vercel",
+          args: ["deploy", "--prebuilt", "--yes", "--token", process.env.VERCEL_TOKEN ?? ""],
+          cwd: "/app/dist",
+        });
 
         const deployOutput = await deployResult.stdout();
         const urlMatch = deployOutput.match(/https:\/\/[^\s]+\.vercel\.app/);

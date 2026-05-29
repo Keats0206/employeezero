@@ -13,6 +13,8 @@ const SCREENS = [
 export function DevNav() {
   const path = usePathname();
 
+  if (process.env.NODE_ENV !== "development") return null;
+
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-gray-900/90 backdrop-blur px-3 py-2 rounded-full shadow-xl border border-white/10">
       <span className="text-gray-500 text-xs mr-2 font-mono">proto</span>
