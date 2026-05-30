@@ -1,8 +1,5 @@
 // The Business Brief — the Chief of Staff's long-term memory of the business.
-// Distinct from chat scrollback: chat is short-term, the brief is what survives
-// across sessions. The CoS reads it before every turn and revises it as it
-// learns (same read-revise-write pattern as agent memory). Prototype persists
-// to localStorage; this is the seam where a DB-backed brief gets wired later.
+// DB-backed with localStorage fallback for unauthenticated / demo use.
 
 export type BusinessBrief = {
   content: string; // living markdown document
@@ -32,7 +29,9 @@ _Not defined yet._
 ## What we've learned
 _Nothing yet._`;
 
-export function loadBrief(): BusinessBrief {
+// ─── localStorage fallback (unauthenticated / demo) ──────────────────────
+
+function loadBriefLocal(): BusinessBrief {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_BRIEF;
@@ -42,12 +41,65 @@ export function loadBrief(): BusinessBrief {
   }
 }
 
-export function saveBrief(brief: BusinessBrief) {
+function saveBriefLocal(brief: BusinessBrief) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(brief));
   } catch {
     /* ignore */
   }
+}
+
+// ─── DB-backed persistence ────────────────────────────────────────────────
+
+async function loadBriefDB(): Promise<BusinessBrief> {
+  try {
+    const res = await fetch("/api/cabana/brief");
+    if (!res.ok) return EMPTY_BRIEF;
+    const data = await res.json();
+    return {
+      content: data.content ?? "",
+      updatedAt: data.updatedAt ?? null,
+    };
+  } catch {
+    return EMPTY_BRIEF;
+  }
+}
+
+async function saveBriefDB(brief: BusinessBrief): Promise<void> {
+  try {
+    await fetch("/api/cabana/brief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: brief.content }),
+    });
+  } catch {
+    /* ignore — localStorage fallback still works */
+  }
+}
+
+// ─── Public API (same interface as before) ────────────────────────────────
+
+export function loadBrief(): BusinessBrief {
+  // Sync load — returns localStorage immediately. DB load happens in
+  // loadBriefAsync below for the chat page's useEffect hydration.
+  return loadBriefLocal();
+}
+
+export async function loadBriefAsync(): Promise<BusinessBrief> {
+  const dbBrief = await loadBriefDB();
+  if (dbBrief.content) {
+    // Sync to localStorage so legacy reads still work
+    saveBriefLocal(dbBrief);
+    return dbBrief;
+  }
+  return loadBriefLocal();
+}
+
+export function saveBrief(brief: BusinessBrief) {
+  // Sync save to localStorage for immediate reads
+  saveBriefLocal(brief);
+  // Async save to DB — fire-and-forget
+  saveBriefDB(brief);
 }
 
 export function briefForPrompt(brief: BusinessBrief): string {

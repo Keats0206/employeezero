@@ -478,21 +478,29 @@ function PreviewPage() {
     return null;
   }
 
-  function handleOutputs(o: AgentOutputs) {
+  const [cabanaId, setCabanaId] = useState<string | null>(null);
+
+  async function handleOutputs(o: AgentOutputs) {
     setOutputs(o);
-    saveSession(idea, o);
+    saveSession(idea, o); // Keep localStorage as instant fallback
+    
+    // Save to DB immediately after generation completes
+    try {
+      const res = await fetch("/api/cabana", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea, outputs: o }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCabanaId(data.cabana.id);
+      }
+    } catch { /* localStorage fallback still works */ }
   }
 
   async function handleLaunch() {
-    // Save to DB (creates Cabana record), then go to upgrade
-    try {
-      await fetch("/api/cabana", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, outputs }),
-      });
-    } catch { /* non-blocking */ }
-    router.push("/upgrade");
+    // Cabana already saved to DB — send to upgrade with cabanaId
+    router.push(cabanaId ? `/upgrade?cabana=${cabanaId}` : "/upgrade");
   }
 
   return (

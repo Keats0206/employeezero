@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AGENT_META, AGENT_COLOR, AGENT_MODELS, EXAMPLES, type AgentId } from "@/app/lib/cabana-config";
 import { Desk, type CrewStatus, type AgentActivity, type CrewRun, type DeskTab } from "@/app/components/cabana/Desk";
-import { loadBrief, saveBrief, type BusinessBrief } from "@/app/lib/cabana-brief";
+import { loadBrief, loadBriefAsync, saveBrief, type BusinessBrief } from "@/app/lib/cabana-brief";
 import { streamBuild, type BuildState } from "@/app/lib/cabana-build";
 import {
   Conversation,
@@ -22,6 +23,9 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { Suggestions, Suggestion } from "@/components/ai-elements/suggestion";
+import Link from "next/link";
+import { TreePalm } from "lucide-react";
+import { Avatar } from "@/app/components/Avatar";
 import { Tool, ToolHeader, ToolContent } from "@/components/ai-elements/tool";
 import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/ai-elements/reasoning";
 
@@ -29,9 +33,9 @@ const SURF = "#23b5d3";
 const HISTORY_KEY = "cabana_chat_history";
 const BUILD_KEY = "cabana_build";
 
-// Chat history persists to localStorage so the conversation always survives a
-// reload. Prototype storage — same DB seam as the brief.
-function loadHistory(): UIMessage[] {
+// ─── localStorage fallbacks (used as sync cache while DB loads) ──────────
+
+function loadHistoryLocal(): UIMessage[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
@@ -40,18 +44,13 @@ function loadHistory(): UIMessage[] {
     return [];
   }
 }
-function saveHistory(messages: UIMessage[]) {
+function saveHistoryLocal(messages: UIMessage[]) {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(messages));
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
-// The finished build (HTML + live URL) persists too, so a reload keeps the
-// landing page preview and "Open live" link. Same prototype seam — the real
-// home for this is the landingPages table.
-function loadBuild(): BuildState | null {
+function loadBuildLocal(): BuildState | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(BUILD_KEY);
@@ -60,13 +59,67 @@ function loadBuild(): BuildState | null {
     return null;
   }
 }
-function saveBuild(build: BuildState | null) {
+function saveBuildLocal(build: BuildState | null) {
   try {
     if (build) localStorage.setItem(BUILD_KEY, JSON.stringify(build));
     else localStorage.removeItem(BUILD_KEY);
+  } catch { /* ignore */ }
+}
+
+// ─── DB-backed persistence ────────────────────────────────────────────────
+
+async function loadHistoryDB(): Promise<UIMessage[]> {
+  try {
+    const res = await fetch("/api/cabana/chat-history");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.messages ?? [];
   } catch {
-    /* ignore */
+    return [];
   }
+}
+
+async function saveHistoryDB(messages: UIMessage[]) {
+  try {
+    await fetch("/api/cabana/chat-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+  } catch { /* ignore — localStorage fallback still works */ }
+}
+
+async function clearHistoryDB() {
+  try {
+    await fetch("/api/cabana/chat-history", { method: "DELETE" });
+  } catch { /* ignore */ }
+}
+
+async function loadBuildDB(): Promise<BuildState | null> {
+  try {
+    const res = await fetch("/api/cabana/builds");
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status === "idle" || !data.html) return null;
+    return { status: "done", html: data.html, url: data.url, projectId: data.projectId };
+  } catch {
+    return null;
+  }
+}
+
+async function saveBuildDB(build: BuildState) {
+  try {
+    await fetch("/api/cabana/builds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        html: build.html,
+        deployUrl: build.url,
+        deployStatus: build.url ? "deployed" : "pending",
+        projectId: build.projectId ?? null,
+      }),
+    });
+  } catch { /* ignore */ }
 }
 
 // Derive each agent's live status from the chat's tool-call stream. The CoS
@@ -107,12 +160,18 @@ function deriveRuns(messages: ReturnType<typeof useChat>["messages"]): CrewRun[]
       if (!(agent in AGENT_META)) continue;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const p = part as any;
+      
+      // Capture streaming text — the AI SDK exposes the partial result in p.result
+      // while streaming (state = "output-streaming"), then the final output once done.
+      const streamingText = p.state === "output-streaming" ? p.result : undefined;
+      
       runs.push({
         id: p.toolCallId ?? `${agent}-${runs.length}`,
         agent: agent as AgentId,
         task: p.input?.task,
         status: p.state === "output-available" ? "done" : "working",
         output: p.output,
+        streamingText,
       });
     }
   }
@@ -131,16 +190,44 @@ function toolMeta(toolName: string): { name: string; icon: string; color: string
   return { name: toolName, icon: "🛠️", color: SURF };
 }
 
-export default function ChatPage() {
+function ChatInner() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const cabanaId = params.get("cabana");
+  
   // The Business Brief — CoS long-term memory. Held here, sent with every
   // request, and re-persisted whenever the CoS revises it via its tool.
   const [brief, setBrief] = useState<BusinessBrief>({ content: "", updatedAt: null });
   const briefRef = useRef(brief);
   briefRef.current = brief;
 
+  // Load cabana data if cabanaId is provided
   useEffect(() => {
-    setBrief(loadBrief());
-  }, []);
+    if (cabanaId) {
+      async function loadCabana() {
+        try {
+          const res = await fetch(`/api/cabana/${cabanaId}`);
+          if (!res.ok) {
+            // Ownership check failed or not found
+            router.push("/cabanas");
+            return;
+          }
+          const data = await res.json();
+          // Load the cabana's brief if available
+          if (data.cabana) {
+            // TODO: Load cabana-specific brief, chat history, builds
+          }
+        } catch {
+          router.push("/cabanas");
+        }
+      }
+      loadCabana();
+    } else {
+      // New cabana — load brief from localStorage/DB
+      setBrief(loadBrief());
+      loadBriefAsync().then(setBrief);
+    }
+  }, [cabanaId, router]);
 
   function commitBrief(content: string) {
     const next = { content, updatedAt: Date.now() };
@@ -161,24 +248,34 @@ export default function ChatPage() {
   const { messages, sendMessage, setMessages, status } = useChat({ transport });
   const busy = status === "submitted" || status === "streaming";
 
-  // Rehydrate the saved thread after mount. The server renders an empty thread
-  // (no localStorage), so loading here keeps SSR and the first client render in
-  // sync and avoids a hydration mismatch.
+  // Rehydrate the saved thread after mount — localStorage first for instant
+  // render, then DB to get the authoritative version.
   useEffect(() => {
-    const saved = loadHistory();
-    if (saved.length) setMessages(saved);
+    const local = loadHistoryLocal();
+    if (local.length) setMessages(local);
+    loadHistoryDB().then((db) => {
+      if (db.length) {
+        setMessages(db);
+        saveHistoryLocal(db);
+      }
+    });
   }, [setMessages]);
 
-  // Persist message history whenever a turn settles, so reloads keep the thread.
+  // Persist message history whenever a turn settles.
   useEffect(() => {
-    if (status === "ready") saveHistory(messages);
+    if (status === "ready") {
+      saveHistoryLocal(messages);
+      saveHistoryDB(messages);
+    }
   }, [messages, status]);
 
   function newChat() {
+    router.push("/chat");
     setMessages([]);
-    saveHistory([]);
+    saveHistoryLocal([]);
+    clearHistoryDB();
     setBuild({ status: "idle" });
-    saveBuild(null);
+    saveBuildLocal(null);
   }
 
   // Desk tab is controlled here so a build can switch the desk to the Page tab.
@@ -187,16 +284,24 @@ export default function ChatPage() {
   // Build state — driven only by an explicit human click, never by the CoS.
   const [build, setBuild] = useState<BuildState>({ status: "idle" });
 
-  // Rehydrate the last finished build after mount (SSR-safe, mirrors history).
+  // Rehydrate the last finished build — localStorage first, then DB.
   useEffect(() => {
-    const saved = loadBuild();
-    if (saved?.html) setBuild(saved);
+    const local = loadBuildLocal();
+    if (local?.html) setBuild(local);
+    loadBuildDB().then((db) => {
+      if (db?.html) {
+        setBuild(db);
+        saveBuildLocal(db);
+      }
+    });
   }, []);
 
-  // Persist only completed builds — never the transient "building" state, which
-  // would otherwise rehydrate as a stuck spinner.
+  // Persist only completed builds — never the transient "building" state.
   useEffect(() => {
-    if (build.status === "done" && build.html) saveBuild(build);
+    if (build.status === "done" && build.html) {
+      saveBuildLocal(build);
+      saveBuildDB(build);
+    }
   }, [build]);
   // Which model the Builder uses — founder-selectable per build. Defaults to the
   // Builder's configured model.
@@ -274,8 +379,25 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen bg-white text-black">
-      {/* ── Chat pane (left half) ───────────────────────────────────────── */}
-      <div className="flex flex-col w-1/2 border-r border-black/10">
+      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      <aside className="flex w-16 shrink-0 flex-col items-center justify-between border-r border-black/10 py-5">
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: `${SURF}1a`, color: SURF }}
+        >
+          <TreePalm size={20} strokeWidth={1.75} />
+        </div>
+        <Link
+          href="/settings"
+          aria-label="Settings"
+          className="rounded-full ring-offset-2 transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30"
+        >
+          <Avatar seed="founder" label="You" size={32} />
+        </Link>
+      </aside>
+
+      {/* ── Chat pane ───────────────────────────────────────────────────── */}
+      <div className="flex flex-col flex-1 min-w-0 border-r border-black/10">
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-black/10">
           <div className="flex items-center gap-2">
@@ -351,7 +473,7 @@ export default function ChatPage() {
       </div>
 
       {/* ── Desk pane (right half) ──────────────────────────────────────── */}
-      <div className="w-1/2">
+      <div className="flex-1 min-w-0">
         <Desk
           brief={brief}
           onBriefChange={commitBrief}
@@ -377,17 +499,16 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       <p className="mt-2 text-black/50">
         Tell your Chief of Staff a one-line idea. They&apos;ll run the crew and drive it toward first revenue.
       </p>
-      <div className="mt-8 flex justify-center">
-        <Suggestions className="flex-col items-stretch gap-2">
-          {EXAMPLES.map((ex) => (
-            <Suggestion
-              key={ex}
-              suggestion={ex}
-              onClick={onPick}
-              className="justify-start whitespace-normal border-black/10 px-4 py-3 text-left text-sm hover:border-black/30"
-            />
-          ))}
-        </Suggestions>
+      <div className="mt-8 mx-auto max-w-md flex flex-col gap-2">
+        {EXAMPLES.map((ex) => (
+          <button
+            key={ex}
+            onClick={() => onPick(ex)}
+            className="w-full text-left px-4 py-3 rounded-2xl border border-black/10 text-sm text-black/70 transition-colors hover:border-black/30 hover:text-black"
+          >
+            {ex}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -588,4 +709,12 @@ function ToolOutput({ output }: { output: unknown }) {
     );
   }
   return null;
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white flex items-center justify-center">Loading...</div>}>
+      <ChatInner />
+    </Suspense>
+  );
 }

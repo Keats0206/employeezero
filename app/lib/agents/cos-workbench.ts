@@ -14,6 +14,17 @@ const WorkOrderSchema = z.object({
   status: z.enum(["pending_approval", "approved", "running", "done"]).default("pending_approval"),
 });
 
+const ActionSchema = z.object({
+  title: z.string().describe("Clear, actionable title (e.g., 'Send cold outreach to 12 startup VPs')"),
+  type: z.enum(["manual", "agent_task"]).describe("manual = founder does it, agent_task = system can execute"),
+  agent: z.enum(["scout", "strategist", "builder", "seller", "creator", "analyst"]).optional(),
+  risk: z.enum(["low", "medium", "high"]).default("low"),
+  channel: z.string().optional().describe("Where this action happens (e.g., 'LinkedIn', 'Email', 'Facebook Ads')"),
+  details: z.string().describe("Clear instructions or context for executing this action"),
+  why: z.string().describe("Why this action matters right now"),
+  input_json: z.string().optional().describe("JSON string with structured data needed (templates, targets, etc.)"),
+});
+
 export const LoopSchema = z.object({
   state_read: z.string().describe("One sentence summary of current cabana state"),
   decision: z.string().describe("The CoS decision for this cycle"),
@@ -27,6 +38,7 @@ export const LoopSchema = z.object({
     text: z.string(),
   })).min(1).max(5),
   work_orders: z.array(WorkOrderSchema).max(2),
+  actions: z.array(ActionSchema).max(5).describe("Concrete next steps for founder or system to execute"),
   escalation: z.object({
     needed: z.boolean(),
     question: z.string(),
@@ -147,7 +159,16 @@ Rules:
 - Plan changes should be concrete and test-oriented.
 - Preserve the current experiment unless signals imply it should be changed.
 - Escalation should be needed when approval, credentials, budget, channel choice, or user context blocks the next real-world action.
-- Keep all copy concise.`;
+- Keep all copy concise.
+
+Actions:
+- When agents produce deliverables (outreach templates, ad copy, research lists), create concrete actions for founder to execute.
+- Actions should be specific and immediately actionable (e.g., "Send cold outreach to 12 startup VPs using templates", not "Do outreach").
+- Use type "manual" for founder execution (cold calls, approve spend, etc.).
+- Use type "agent_task" for work that agents can fully produce (draft copy, research, analysis).
+- Set risk "high" for spend/publishing, "medium" for outreach, "low" for drafts/research.
+- Include input_json with structured data when available (templates, contact lists, etc.).
+- Don't create duplicate actions — check the action queue first.`;
 }
 
 export async function runCosWorkbenchLoop(input: {

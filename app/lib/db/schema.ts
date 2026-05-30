@@ -158,16 +158,7 @@ export const approvals = pgTable("approvals", {
   created_at: now(),
 });
 
-export const artifacts = pgTable("artifacts", {
-  id: id(),
-  workspace_id: text("workspace_id").notNull(),
-  type: text("type").notNull(),
-  title: text("title").notNull(),
-  content: text("content").notNull(),
-  url: text("url"),
-  created_by_agent: text("created_by_agent").notNull().default("system"),
-  created_at: now(),
-});
+// Artifacts table removed — was legacy, never used in Cabana system
 
 export const llmCalls = pgTable("llm_calls", {
   id: id(),
@@ -200,6 +191,72 @@ export const appProjects = pgTable("app_projects", {
   // not a hard FK, since the chat flow doesn't always create a cabana yet).
   cabana_id: text("cabana_id"),
   label: text("label").notNull().default(""),
+  created_at: now(),
+});
+
+// --- Persistence layer (Sprint 1: Make memory real) ---
+// Replaces localStorage seams with durable DB storage. Each table maps to one
+// of the four prototype storage points: brief, chat, build, actions.
+
+export const businessBriefs = pgTable("business_briefs", {
+  id: id(),
+  cabana_id: text("cabana_id"), // loose link — may not exist yet during onboarding
+  user_id: text("user_id").notNull(),
+  content: text("content").notNull().default(""),
+  version: integer("version").notNull().default(1),
+  created_at: now(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const chatThreads = pgTable("chat_threads", {
+  id: id(),
+  user_id: text("user_id").notNull(),
+  cabana_id: text("cabana_id"),
+  title: text("title").notNull().default(""),
+  // Full UIMessage[] array serialized as JSON. The AI SDK's useChat manages
+  // message IDs, parts, tool states, etc. internally — we store the entire
+  // array as one blob so rehydration is a simple parse, preserving structure
+  // that a normalized per-message table would lose (tool-call IDs, streaming
+  // states, part ordering across multi-step turns).
+  messages_json: text("messages_json").notNull().default("[]"),
+  created_at: now(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pageVersions = pgTable("page_versions", {
+  id: id(),
+  cabana_id: text("cabana_id"),
+  user_id: text("user_id").notNull(),
+  html: text("html").notNull().default(""),
+  deploy_url: text("deploy_url"),
+  deploy_error: text("deploy_error"),
+  deploy_status: text("deploy_status").notNull().default("pending"), // pending | deployed | failed
+  project_id: text("project_id"),
+  model: text("model"),
+  version: integer("version").notNull().default(1),
+  update_instruction: text("update_instruction"),
+  created_at: now(),
+});
+
+export const actions = pgTable("actions", {
+  id: id(),
+  cabana_id: text("cabana_id"),
+  user_id: text("user_id").notNull(),
+  title: text("title").notNull(),
+  channel: text("channel").notNull().default("manual"),
+  details: text("details").notNull().default(""),
+  why: text("why").notNull().default(""),
+  status: text("status").notNull().default("proposed"), // proposed | needs_approval | approved | running | done | failed | canceled
+  risk: text("risk").notNull().default("low"), // low | medium | high
+  type: text("type"), // manual | builder_work_order
+  agent: text("agent"),
+  tool: text("tool"),
+  input_json: text("input_json").notNull().default("{}"),
+  output_json: text("output_json").notNull().default("{}"),
+  result_url: text("result_url"),
+  cycle: integer("cycle").notNull().default(0),
+  // Builder work order details — null for non-builder actions.
+  work_order_json: text("work_order_json"), // { task_type, brief, reason, requires_approval, status }
   created_at: now(),
 });
 

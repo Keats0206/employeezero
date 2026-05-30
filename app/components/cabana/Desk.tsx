@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Streamdown } from "streamdown";
-import { Home, Users, Globe, Activity, FolderOpen, BookText, Inbox, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
+import { Home, Users, Globe, Activity, BookText, Inbox, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
 import { BRIEF_TEMPLATE, type BusinessBrief } from "@/app/lib/cabana-brief";
 import type { BuildState } from "@/app/lib/cabana-build";
 import { AGENT_META, AGENT_COLOR, AGENT_ORDER, BUILD_MODELS, type AgentId } from "@/app/lib/cabana-config";
@@ -24,9 +24,10 @@ export type CrewRun = {
   task?: string;
   status: "working" | "done";
   output?: unknown;
+  streamingText?: string;
 };
 
-export type DeskTab = "home" | "crew" | "page" | "signals" | "artifacts" | "brief";
+export type DeskTab = "home" | "crew" | "page" | "signals" | "brief";
 
 // The Desk — the right half of /chat. The founder's operating surface that
 // fills in as the Chief of Staff runs the crew.
@@ -72,9 +73,8 @@ export function Desk({
       <div className="flex items-center gap-0.5 px-3 pt-3 border-b border-black/10">
         <TabButton id="home" active={tab === "home"} onClick={setTab} icon={<Home size={14} />} label="Home" />
         <TabButton id="crew" active={tab === "crew"} onClick={setTab} icon={<Users size={14} />} label="Crew" badge={workingCount || undefined} />
-        <TabButton id="page" active={tab === "page"} onClick={setTab} icon={<Globe size={14} />} label="Page" />
+        <TabButton id="page" active={tab === "page"} onClick={setTab} icon={<Globe size={14} />} label="Website" />
         <TabButton id="signals" active={tab === "signals"} onClick={setTab} icon={<Activity size={14} />} label="Signals" />
-        <TabButton id="artifacts" active={tab === "artifacts"} onClick={setTab} icon={<FolderOpen size={14} />} label="Artifacts" />
         <TabButton id="brief" active={tab === "brief"} onClick={setTab} icon={<BookText size={14} />} label="Brief" />
       </div>
 
@@ -95,7 +95,6 @@ export function Desk({
         {tab === "crew" && <CrewPanel runs={runs} />}
         {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
         {tab === "signals" && <SignalsPanel projectId={build.projectId} />}
-        {tab === "artifacts" && <ArtifactsPanel />}
         {tab === "brief" && <BriefPanel brief={brief} onChange={onBriefChange} />}
       </div>
 
@@ -404,39 +403,41 @@ function HomePanel({
   );
 }
 
-// ─── Crew — paged run history, one horizontal card at a time ─────────────────
+// ─── Crew — filter by agent, show all runs for that agent ────────────────────
 function CrewPanel({ runs }: { runs: CrewRun[] }) {
-  // Newest first.
-  const ordered = [...runs].reverse();
-  const [selected, setSelected] = useState(0);
+  // Find which agents have actually run
+  const agentsWithRuns = AGENT_ORDER.filter(id => runs.some(r => r.agent === id));
+  
+  // Default to first agent that has runs, or Scout if none
+  const [selectedAgent, setSelectedAgent] = useState<AgentId>(agentsWithRuns[0] || "scout");
   const [view, setView] = useState<"card" | "inbox">("card");
+  const [cardIndex, setCardIndex] = useState(0);
 
-  // Keep the newest run selected as new runs stream in.
-  const latestId = ordered[0]?.id;
-  const prevLatest = useRef(latestId);
+  // Filter runs for the selected agent, newest first
+  const agentRuns = runs.filter(r => r.agent === selectedAgent).reverse();
+
+  // When switching agents, reset to first card
+  const prevAgent = useRef(selectedAgent);
   useEffect(() => {
-    if (latestId !== prevLatest.current) {
-      prevLatest.current = latestId;
-      setSelected(0);
+    if (selectedAgent !== prevAgent.current) {
+      prevAgent.current = selectedAgent;
+      setCardIndex(0);
     }
-  }, [latestId]);
+  }, [selectedAgent]);
 
-  if (ordered.length === 0) {
+  if (runs.length === 0) {
     return (
       <div className="h-full rounded-2xl border border-black/10 bg-white overflow-hidden">
         <EmptyPanel
           icon={<Users size={20} />}
           title="Crew hasn't run yet"
-          hint="Give the Chief of Staff an idea. Every time it runs an agent, the work shows up here — page through to watch the crew think."
+          hint="Give the Chief of Staff an idea. Every time it runs an agent, the work shows up here."
         />
       </div>
     );
   }
 
-  const idx = Math.min(selected, ordered.length - 1);
-  const run = ordered[idx];
-
-  // View toggle — card (paged, expanded) vs inbox (simple rows).
+  // View toggle
   const toggle = (
     <div className="flex items-center gap-0.5 rounded-full border border-black/10 p-0.5 shrink-0">
       <button
@@ -449,71 +450,94 @@ function CrewPanel({ runs }: { runs: CrewRun[] }) {
       <button
         onClick={() => setView("inbox")}
         className={`p-1.5 rounded-full transition-colors ${view === "inbox" ? "bg-black/[0.06] text-black" : "text-black/35 hover:text-black/60"}`}
-        title="Inbox view"
+        title="List view"
       >
         <List size={14} />
       </button>
     </div>
   );
 
-  if (view === "inbox") {
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-wide text-black/40">{ordered.length} run{ordered.length === 1 ? "" : "s"}</span>
-          {toggle}
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-white overflow-hidden divide-y divide-black/5">
-          {ordered.map((r, i) => {
-            const m = AGENT_META[r.agent];
-            return (
-              <button
-                key={r.id}
-                onClick={() => { setSelected(i); setView("card"); }}
-                className="flex items-center gap-3 w-full px-4 py-2.5 text-left hover:bg-black/[0.02] transition-colors"
-              >
-                <span className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0" style={{ background: `${AGENT_COLOR[r.agent]}1a` }}>
-                  {m.icon}
-                </span>
-                <span className="text-sm font-medium text-black/80 w-24 shrink-0">{m.name}</span>
-                <span className="text-xs text-black/45 truncate flex-1">{r.task || m.role}</span>
-                <StatusDot status={r.status} className="shrink-0" />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      {/* Pager — one pill per run, newest first */}
-      <div className="flex items-center gap-1.5">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 flex-1">
-        {ordered.map((r, i) => {
-          const m = AGENT_META[r.agent];
-          const active = i === idx;
-          const working = r.status === "working";
+      {/* Agent filter pills — always show all 6 agents */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {AGENT_ORDER.map(id => {
+          const m = AGENT_META[id];
+          const count = runs.filter(r => r.agent === id).length;
+          const active = id === selectedAgent;
+          const hasRuns = count > 0;
+          const working = runs.some(r => r.agent === id && r.status === "working");
+          
           return (
             <button
-              key={r.id}
-              onClick={() => setSelected(i)}
-              style={working ? { borderColor: SURF, background: `${SURF}14`, color: "#000" } : undefined}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border transition-colors ${
-                working ? "" : active ? "border-black/40 bg-black/[0.04] text-black" : "border-black/10 text-black/45 hover:text-black/70"
+              key={id}
+              onClick={() => setSelectedAgent(id)}
+              disabled={!hasRuns}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-30 ${
+                active ? "border-black/40 bg-black/[0.04] text-black" : "border-black/10 text-black/50 hover:text-black/80"
               }`}
             >
               <span>{m.icon}</span>
-              <span className="font-medium">{m.name}</span>
-              <StatusDot status={r.status} />
+              <span>{m.name}</span>
+              {hasRuns && <span className="text-[10px] opacity-60">({count})</span>}
+              {working && <StatusDot status="working" />}
             </button>
           );
         })}
-        </div>
+      </div>
+
+      {/* View toggle */}
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wide text-black/40">
+          {agentRuns.length} run{agentRuns.length === 1 ? "" : "s"}
+        </span>
         {toggle}
       </div>
-      <RunCard run={run} />
+
+      {/* No runs for this agent */}
+      {agentRuns.length === 0 && (
+        <div className="rounded-2xl border border-black/10 bg-white p-8 text-center">
+          <p className="text-sm text-black/40">{AGENT_META[selectedAgent].name} hasn't run yet.</p>
+        </div>
+      )}
+
+      {/* List view — show all runs */}
+      {agentRuns.length > 0 && view === "inbox" && (
+        <div className="rounded-2xl border border-black/10 bg-white overflow-hidden divide-y divide-black/5">
+          {agentRuns.map((r, i) => (
+            <button
+              key={r.id}
+              onClick={() => { setCardIndex(i); setView("card"); }}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-left hover:bg-black/[0.02] transition-colors"
+            >
+              <span className="text-sm text-black/30 font-mono w-6">#{agentRuns.length - i}</span>
+              <span className="text-xs text-black/45 truncate flex-1">{r.task || AGENT_META[r.agent].role}</span>
+              <StatusDot status={r.status} className="shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Card view — carousel through runs */}
+      {agentRuns.length > 0 && view === "card" && (
+        <div className="space-y-3">
+          {agentRuns.length > 1 && (
+            <div className="flex items-center gap-2 justify-center">
+              {agentRuns.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCardIndex(i)}
+                  className={`w-2 h-2 rounded-full transition-colors ${
+                    i === cardIndex ? "bg-black/60" : "bg-black/15 hover:bg-black/30"
+                  }`}
+                  title={`Run ${agentRuns.length - i}`}
+                />
+              ))}
+            </div>
+          )}
+          <RunCard run={agentRuns[cardIndex]} />
+        </div>
+      )}
     </div>
   );
 }
@@ -548,10 +572,15 @@ function RunCard({ run }: { run: CrewRun }) {
           <span className="text-xs text-black/40 capitalize">{working ? "working…" : "done"}</span>
         </div>
       </div>
-      {working && !run.output && (
+      {working && !run.output && !run.streamingText && (
         <div className="px-5 pb-4 text-sm text-black/35">Thinking…</div>
       )}
-      {run.output != null && (
+      {run.streamingText && (
+        <div className="px-5 py-4 border-t border-black/5 bg-black/[0.02]">
+          <p className="text-sm text-black/75 leading-relaxed">{run.streamingText}<span className="animate-pulse">▋</span></p>
+        </div>
+      )}
+      {run.output != null && !run.streamingText && (
         <div className="px-5 py-4 border-t border-black/5 bg-black/[0.02]">
           <RunOutput output={run.output} />
         </div>
@@ -907,17 +936,7 @@ function SignalsPanel({ projectId }: { projectId?: string }) {
   );
 }
 
-function ArtifactsPanel() {
-  return (
-    <div className="h-full rounded-2xl border border-black/10 bg-white overflow-hidden">
-      <EmptyPanel
-        icon={<FolderOpen size={20} />}
-        title="Nothing produced yet"
-        hint="Strategy docs, page copy, outreach messages, content hooks, and analyses the crew makes will collect here so nothing gets lost in chat."
-      />
-    </div>
-  );
-}
+
 
 // ─── Brief — the CoS's long-term memory ──────────────────────────────────────
 function BriefPanel({ brief, onChange }: { brief: BusinessBrief; onChange: (content: string) => void }) {
@@ -973,15 +992,123 @@ function BriefPanel({ brief, onChange }: { brief: BusinessBrief; onChange: (cont
   );
 }
 
+type Action = {
+  id: string;
+  title: string;
+  status: string;
+  risk: string;
+  details: string;
+  why: string;
+  channel?: string;
+  type?: string;
+  agent?: string;
+};
+
 function ActionStrip() {
+  const [actions, setActions] = useState<Action[]>([]);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const res = await fetch("/api/cabana/actions");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (active) setActions(json.actions ?? []);
+      } catch {
+        /* ignore */
+      }
+    }
+    load();
+    const t = setInterval(load, 10000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  const pending = actions.filter(a => a.status === "proposed" || a.status === "needs_approval");
+  const count = pending.length;
+
+  async function updateStatus(id: string, status: string) {
+    try {
+      await fetch("/api/cabana/actions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
-    <div className="border-t border-black/10 bg-white px-5 py-3">
-      <div className="flex items-center gap-2">
+    <div className="border-t border-black/10 bg-white">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-5 py-3 flex items-center gap-2 hover:bg-black/[0.02] transition-colors"
+      >
         <Inbox size={14} className="text-black/40" />
         <span className="text-xs font-medium text-black/70">Action queue</span>
-        <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 text-black/40 tabular-nums">0</span>
-        <span className="ml-auto text-[11px] text-black/30">Approvals & decisions land here</span>
-      </div>
+        <span
+          className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full tabular-nums"
+          style={{ background: count > 0 ? SURF : "#00000008", color: count > 0 ? "white" : "#00000040" }}
+        >
+          {count}
+        </span>
+        <span className="ml-auto text-[11px] text-black/30">
+          {count > 0 ? `${count} pending` : "Approvals & decisions land here"}
+        </span>
+      </button>
+
+      {expanded && pending.length > 0 && (
+        <div className="border-t border-black/5 bg-black/[0.01] divide-y divide-black/5">
+          {pending.map(action => (
+            <div key={action.id} className="px-5 py-3">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-black/80">{action.title}</p>
+                  <p className="text-xs text-black/50 mt-0.5">{action.why}</p>
+                </div>
+                <span
+                  className="shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium"
+                  style={{
+                    background: action.risk === "high" ? "#fef2f2" : action.risk === "medium" ? "#fffbeb" : "#f0fdf4",
+                    color: action.risk === "high" ? "#991b1b" : action.risk === "medium" ? "#92400e" : "#166534",
+                  }}
+                >
+                  {action.risk}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => updateStatus(action.id, "approved")}
+                  className="text-xs px-3 py-1.5 rounded-full font-medium text-white"
+                  style={{ background: SURF }}
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => updateStatus(action.id, "canceled")}
+                  className="text-xs px-3 py-1.5 rounded-full font-medium border border-black/10 hover:border-black/25 transition-colors"
+                >
+                  Reject
+                </button>
+                {action.details && (
+                  <button
+                    onClick={() => alert(action.details)}
+                    className="ml-auto text-[11px] text-black/40 hover:text-black/60"
+                  >
+                    Details →
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

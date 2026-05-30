@@ -1,5 +1,8 @@
 import { COS_MODEL, runCosWorkbenchLoop, type LoopMode } from "@/app/lib/agents/cos-workbench";
 import type { AgentOutputs } from "@/app/lib/cabana-config";
+import { insertAction } from "@/app/lib/db/persistence";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -50,6 +53,29 @@ export async function POST(req: Request) {
       mode,
     });
 
+    // Save any new actions to the database
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.email;
+    const createdActions = [];
+    
+    if (userId && result.loop.actions && result.loop.actions.length > 0) {
+      for (const action of result.loop.actions) {
+        const created = await insertAction({
+          userId,
+          title: action.title,
+          channel: action.channel ?? "manual",
+          details: action.details,
+          why: action.why,
+          status: "proposed",
+          risk: action.risk ?? "low",
+          type: action.type ?? "manual",
+          agent: action.agent ?? undefined,
+          cycle: cycle ?? 1,
+        });
+        createdActions.push(created);
+      }
+    }
+
     return Response.json({
       ok: true,
       model: COS_MODEL,
@@ -58,6 +84,7 @@ export async function POST(req: Request) {
       loop: result.loop,
       work_orders: result.loop.work_orders,
       agent_results: result.agentResults,
+      created_actions: createdActions,
       usage: result.usage,
     });
   } catch (err) {

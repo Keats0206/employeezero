@@ -1,11 +1,27 @@
 import { contentFromOutputs, runBuilderTask, type BuilderTaskType } from "@/app/lib/agents/builder";
 import { BUILD_MODELS } from "@/app/lib/cabana-config";
+import { requireCabanaOwnership, unauthorizedResponse, upgradeRequiredResponse, canUsePaidFeatures } from "@/app/lib/auth-helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
-  const { outputs, existingHtml, updateInstruction, taskType, model, projectId } = await req.json();
+  const { outputs, existingHtml, updateInstruction, taskType, model, projectId, cabanaId } = await req.json();
+  
+  // Require auth and check plan if cabanaId is provided
+  if (cabanaId) {
+    try {
+      const { cabana } = await requireCabanaOwnership(cabanaId);
+      
+      // Only paid plans can deploy
+      if (!canUsePaidFeatures(cabana.plan)) {
+        return upgradeRequiredResponse(cabanaId);
+      }
+    } catch {
+      return unauthorizedResponse();
+    }
+  }
+  
   const content = contentFromOutputs(outputs ?? {});
   // Only honor a model the founder is actually allowed to pick; otherwise let
   // the builder fall back to its default.
