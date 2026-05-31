@@ -1,6 +1,8 @@
 import { gateway, generateObject, tool } from "ai";
 import { z } from "zod";
-import { CHEAP_MODEL } from "@/app/lib/cabana-config";
+import { CHEAP_MODEL, AGENT_ORDER, type AgentId } from "@/app/lib/cabana-config";
+import { runSellerOutreach, type SellerCtx } from "./seller-tools";
+import { getCabanaSignals } from "@/app/lib/db/cabana-queries";
 
 // ─── The crew as tools ──────────────────────────────────────────────────────
 // Each of the 6 Cabana agents is exposed to the Chief of Staff as a callable
@@ -92,13 +94,122 @@ Task: ${task}`,
   });
 }
 
-export const crewTools = {
+// The six specialist tools, keyed by AgentId. Used directly in operating mode
+// (filtered by the approved roster — see pickCrew) and never during intake.
+const CREW: Record<AgentId, ReturnType<typeof runAgent>> = {
   scout: runAgent("scout"),
   strategist: runAgent("strategist"),
   builder: runAgent("builder"),
   seller: runAgent("seller"),
   creator: runAgent("creator"),
   analyst: runAgent("analyst"),
+};
+
+// The real Seller: instead of drafting throwaway text, it finds real prospects
+// (Apollo), drafts personalized messages, and queues them to the Actions tab for
+// approval before anything sends. Needs user/cabana context to attribute the
+// queued actions, so it's built per-request rather than as a static tool.
+function makeSellerTool(ctx: SellerCtx) {
+  return tool({
+    description:
+      "Run the seller agent: find real first buyers, draft personalized outreach, and QUEUE it for the founder's approval (nothing sends without approval). Pass a task describing who to reach and the offer.",
+    inputSchema: z.object({
+      task: z.string().describe("Who to reach and what to say, including business context"),
+    }),
+    async execute({ task }) {
+      return runSellerOutreach(task, ctx);
+    },
+  });
+}
+
+// The grounded Analyst: reads the cabana's real captured signals (outreach
+// replies, leads) and bases its read on them instead of inventing them.
+function makeAnalystTool(ctx: SellerCtx) {
+  return tool({
+    description: `Run the analyst agent: ${AGENT_BRIEF.analyst}. It reads the business's REAL captured signals before recommending. Pass a task describing what to assess.`,
+    inputSchema: z.object({
+      task: z.string().describe("What to assess, with business context"),
+    }),
+    async execute({ task }) {
+      let signalBlock = "No real signals captured yet — base your read on the plan and be explicit that validation is still pending.";
+      if (ctx.cabanaId) {
+        try {
+          const rows = await getCabanaSignals(ctx.cabanaId);
+          if (rows.length > 0) {
+            signalBlock = rows
+              .slice(0, 15)
+              .map((s) => `- ${s.type}${s.notes ? `: ${s.notes}` : ""}`)
+              .join("\n");
+          }
+        } catch { /* fall back to the default */ }
+      }
+      const { object } = await generateObject({
+        model: gateway(CHEAP_MODEL),
+        schema: AnalystSchema,
+        prompt: `You are Cabana's analyst agent. ${AGENT_BRIEF.analyst}.
+
+REAL captured signals for this business (use these as primary evidence — do not invent traction):
+${signalBlock}
+
+Task: ${task}
+
+Ground your verdict and next play in the real signals above.`,
+      });
+      return object;
+    },
+  });
+}
+
+// Return only the crew tools the founder approved. The CoS in operating mode
+// gets exactly this set, so a disabled agent is simply not callable. When a
+// request context is supplied, the Seller and Analyst are upgraded to their
+// real, data-backed versions.
+export function pickCrew(
+  enabled: AgentId[],
+  ctx?: SellerCtx,
+): Partial<Record<AgentId, ReturnType<typeof runAgent>>> {
+  const set = new Set(enabled);
+  const picked = Object.fromEntries(
+    (Object.entries(CREW) as [AgentId, ReturnType<typeof runAgent>][]).filter(([id]) => set.has(id)),
+  );
+  if (ctx && set.has("seller")) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    picked.seller = makeSellerTool(ctx) as any;
+  }
+  if (ctx && set.has("analyst")) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    picked.analyst = makeAnalystTool(ctx) as any;
+  }
+  return picked;
+}
+
+// Intake-only. The CoS analyzes the idea/imported site and proposes which crew
+// to enable. The client renders the result as an interactive approval card and
+// persists the founder's final selection (see RosterCard in /chat). This is a
+// passthrough — it just carries the proposal out on the stream.
+export const proposeRosterTool = tool({
+  description:
+    "Propose the crew roster for this business. Call this exactly once during intake after analyzing the idea (and imported site, if any). List ONLY the agents worth enabling, each with a one-line reason. The founder will approve or adjust before the crew runs.",
+  inputSchema: z.object({
+    summary: z.string().describe("1-2 sentence read on the business and the plan"),
+    roster: z
+      .array(
+        z.object({
+          agent: z.enum(AGENT_ORDER),
+          reason: z.string().describe("One short line on why this agent earns a slot"),
+        }),
+      )
+      .min(1)
+      .describe("The agents to enable, highest-leverage first"),
+    note: z.string().describe("One short line framing the next step for the founder"),
+  }),
+  async execute({ summary, roster, note }) {
+    return { summary, roster, note };
+  },
+});
+
+export const crewTools = {
+  ...CREW,
 
   // Approval-gated. The CoS cannot deploy directly — it can only file a work
   // order describing the deploy for the founder to approve.

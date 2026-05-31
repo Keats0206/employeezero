@@ -5,12 +5,14 @@ import { getActiveBrief, upsertBrief } from "@/app/lib/db/persistence";
 
 export const runtime = "nodejs";
 
-// GET /api/cabana/brief — load the current business brief
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const brief = await getActiveBrief(session.user.email);
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
+  const brief = await getActiveBrief(session.user.email, cabanaId);
   return NextResponse.json({
     content: brief?.content ?? "",
     updatedAt: brief?.updated_at ? new Date(brief.updated_at).getTime() : null,
@@ -18,15 +20,17 @@ export async function GET() {
   });
 }
 
-// POST /api/cabana/brief — save a brief revision
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
   const { content }: { content: string } = await req.json();
   if (typeof content !== "string") return NextResponse.json({ error: "content required" }, { status: 400 });
 
-  const brief = await upsertBrief(session.user.email, content);
+  const brief = await upsertBrief(session.user.email, content, cabanaId);
   return NextResponse.json({
     content: brief.content,
     updatedAt: new Date(brief.updated_at).getTime(),

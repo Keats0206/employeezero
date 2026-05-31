@@ -1,9 +1,14 @@
 import { db } from "./index";
 import { cabanas, agentOutputs, plays, signals } from "./schema";
 import { eq, desc } from "drizzle-orm";
-import type { AgentOutputs } from "@/app/lib/cabana-config";
+import type { AgentOutputs, AgentId } from "@/app/lib/cabana-config";
 
-export async function createCabana(userId: string, idea: string, outputs: AgentOutputs) {
+export async function createCabana(
+  userId: string,
+  idea: string,
+  outputs: AgentOutputs,
+  sourceUrl?: string | null,
+) {
   const name = outputs.strategist?.businessName ?? idea.split(" ").slice(-2).join(" ");
 
   const [cabana] = await db
@@ -15,6 +20,7 @@ export async function createCabana(userId: string, idea: string, outputs: AgentO
       status: "active",
       plan: "free",
       sprint_day: 1,
+      source_url: sourceUrl ?? null,
     })
     .returning();
 
@@ -74,6 +80,15 @@ export async function createCabana(userId: string, idea: string, outputs: AgentO
   return cabana;
 }
 
+// Persist the founder-approved crew roster. Empty array stays "[]" — meaning
+// the intake gate is still open and the crew should not run yet.
+export async function setCabanaRoster(cabanaId: string, enabledAgents: AgentId[]) {
+  await db
+    .update(cabanas)
+    .set({ enabled_agents: JSON.stringify(enabledAgents) })
+    .where(eq(cabanas.id, cabanaId));
+}
+
 export async function getCabana(cabanaId: string) {
   const [cabana] = await db
     .select()
@@ -130,6 +145,28 @@ export async function logSignal(cabanaId: string, type: string, value = 1, notes
   return db.insert(signals).values({ cabana_id: cabanaId, type, value, notes });
 }
 
+// Record the AgentMail inbox a cabana sends outreach from, so inbound replies
+// can be mapped back to it. Idempotent — safe to call on every send.
+export async function setCabanaInbox(cabanaId: string, inbox: string) {
+  await db.update(cabanas).set({ agentmail_inbox: inbox }).where(eq(cabanas.id, cabanaId));
+}
+
+export async function getCabanaByInbox(inbox: string) {
+  const [cabana] = await db
+    .select()
+    .from(cabanas)
+    .where(eq(cabanas.agentmail_inbox, inbox))
+    .limit(1);
+  return cabana ?? null;
+}
+
 export async function updatePlayStatus(playId: string, status: string) {
   return db.update(plays).set({ status }).where(eq(plays.id, playId));
+}
+
+export async function deleteCabana(cabanaId: string) {
+  await db.delete(agentOutputs).where(eq(agentOutputs.cabana_id, cabanaId));
+  await db.delete(plays).where(eq(plays.cabana_id, cabanaId));
+  await db.delete(signals).where(eq(signals.cabana_id, cabanaId));
+  await db.delete(cabanas).where(eq(cabanas.id, cabanaId));
 }

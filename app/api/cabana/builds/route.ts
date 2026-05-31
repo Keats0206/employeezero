@@ -5,12 +5,14 @@ import { getLatestPageVersion, insertPageVersion } from "@/app/lib/db/persistenc
 
 export const runtime = "nodejs";
 
-// GET /api/cabana/builds — load the latest build/page state
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const latest = await getLatestPageVersion(session.user.email);
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
+  const latest = await getLatestPageVersion(session.user.email, cabanaId);
   if (!latest) return NextResponse.json({ status: "idle" });
 
   return NextResponse.json({
@@ -23,10 +25,12 @@ export async function GET() {
   });
 }
 
-// POST /api/cabana/builds — save a completed build
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
 
   const body: {
     html: string;
@@ -43,6 +47,7 @@ export async function POST(req: Request) {
     deployStatus: body.deployStatus ?? "deployed",
     projectId: body.projectId,
     updateInstruction: body.updateInstruction,
+    cabanaId,
   });
 
   return NextResponse.json(row);

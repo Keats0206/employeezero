@@ -19,10 +19,10 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const { userId } = await requireAuth();
-    const { idea, outputs }: { idea: string; outputs: AgentOutputs } = await req.json();
+    const { idea, outputs }: { idea: string; outputs?: AgentOutputs } = await req.json();
     if (!idea?.trim()) return Response.json({ error: "idea required" }, { status: 400 });
 
-    const cabana = await createCabana(userId, idea, outputs);
+    const cabana = await createCabana(userId, idea, outputs ?? {});
     return Response.json({ cabana });
   } catch {
     return unauthorizedResponse();

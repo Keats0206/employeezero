@@ -1,7 +1,3 @@
-// Persistence queries for Sprint 1 (Make memory real).
-// Each function maps to one of the four prototype→DB migrations:
-//   businessBriefs, chatThreads, pageVersions, actions.
-
 import { db } from "./index";
 import {
   businessBriefs,
@@ -13,22 +9,26 @@ import { eq, desc, and, isNull } from "drizzle-orm";
 
 // ─── Business Brief ──────────────────────────────────────────────────────
 
-export async function getActiveBrief(userId: string) {
+export async function getActiveBrief(userId: string, cabanaId?: string | null) {
   const [row] = await db
     .select()
     .from(businessBriefs)
-    .where(eq(businessBriefs.user_id, userId))
+    .where(
+      cabanaId
+        ? and(eq(businessBriefs.user_id, userId), eq(businessBriefs.cabana_id, cabanaId))
+        : and(eq(businessBriefs.user_id, userId), isNull(businessBriefs.cabana_id))
+    )
     .orderBy(desc(businessBriefs.updated_at))
     .limit(1);
   return row ?? null;
 }
 
-export async function upsertBrief(userId: string, content: string, cabanaId?: string) {
-  const existing = await getActiveBrief(userId);
+export async function upsertBrief(userId: string, content: string, cabanaId?: string | null) {
+  const existing = await getActiveBrief(userId, cabanaId);
   if (existing) {
     const [updated] = await db
       .update(businessBriefs)
-      .set({ content, version: existing.version + 1, updated_at: new Date(), cabana_id: cabanaId ?? existing.cabana_id })
+      .set({ content, version: existing.version + 1, updated_at: new Date() })
       .where(eq(businessBriefs.id, existing.id))
       .returning();
     return updated;
@@ -41,16 +41,16 @@ export async function upsertBrief(userId: string, content: string, cabanaId?: st
 }
 
 // ─── Chat Thread ─────────────────────────────────────────────────────────
-// Stores the full UIMessage[] array as one JSON blob per thread. This
-// preserves message IDs, part ordering, tool-call states, and everything
-// the AI SDK's useChat needs on rehydration — a normalized per-message
-// table would lose that structure.
 
-export async function getOrCreateThread(userId: string) {
+export async function getOrCreateThread(userId: string, cabanaId?: string | null) {
   const [existing] = await db
     .select()
     .from(chatThreads)
-    .where(and(eq(chatThreads.user_id, userId), isNull(chatThreads.cabana_id)))
+    .where(
+      cabanaId
+        ? and(eq(chatThreads.user_id, userId), eq(chatThreads.cabana_id, cabanaId))
+        : and(eq(chatThreads.user_id, userId), isNull(chatThreads.cabana_id))
+    )
     .orderBy(desc(chatThreads.updated_at))
     .limit(1);
 
@@ -58,26 +58,26 @@ export async function getOrCreateThread(userId: string) {
 
   const [created] = await db
     .insert(chatThreads)
-    .values({ user_id: userId, title: "Chief of Staff" })
+    .values({ user_id: userId, cabana_id: cabanaId ?? null, title: "Chief of Staff" })
     .returning();
   return created;
 }
 
-export async function getThreadMessages(userId: string): Promise<string> {
-  const thread = await getOrCreateThread(userId);
-  return thread.messages_json; // raw JSON string — client parses it
+export async function getThreadMessages(userId: string, cabanaId?: string | null): Promise<string> {
+  const thread = await getOrCreateThread(userId, cabanaId);
+  return thread.messages_json;
 }
 
-export async function saveThreadMessages(userId: string, messagesJson: string) {
-  const thread = await getOrCreateThread(userId);
+export async function saveThreadMessages(userId: string, messagesJson: string, cabanaId?: string | null) {
+  const thread = await getOrCreateThread(userId, cabanaId);
   await db
     .update(chatThreads)
     .set({ messages_json: messagesJson, updated_at: new Date() })
     .where(eq(chatThreads.id, thread.id));
 }
 
-export async function clearThread(userId: string) {
-  const thread = await getOrCreateThread(userId);
+export async function clearThread(userId: string, cabanaId?: string | null) {
+  const thread = await getOrCreateThread(userId, cabanaId);
   await db
     .update(chatThreads)
     .set({ messages_json: "[]", updated_at: new Date() })
@@ -86,11 +86,15 @@ export async function clearThread(userId: string) {
 
 // ─── Page Versions ───────────────────────────────────────────────────────
 
-export async function getLatestPageVersion(userId: string) {
+export async function getLatestPageVersion(userId: string, cabanaId?: string | null) {
   const [row] = await db
     .select()
     .from(pageVersions)
-    .where(eq(pageVersions.user_id, userId))
+    .where(
+      cabanaId
+        ? and(eq(pageVersions.user_id, userId), eq(pageVersions.cabana_id, cabanaId))
+        : and(eq(pageVersions.user_id, userId), isNull(pageVersions.cabana_id))
+    )
     .orderBy(desc(pageVersions.version))
     .limit(1);
   return row ?? null;
@@ -107,7 +111,7 @@ export async function insertPageVersion(opts: {
   updateInstruction?: string | null;
   cabanaId?: string | null;
 }) {
-  const latest = await getLatestPageVersion(opts.userId);
+  const latest = await getLatestPageVersion(opts.userId, opts.cabanaId);
   const version = (latest?.version ?? 0) + 1;
 
   const [row] = await db
@@ -148,6 +152,8 @@ export async function insertAction(opts: {
   risk?: string;
   type?: string;
   agent?: string;
+  tool?: string;
+  inputJson?: string;
   cycle?: number;
   workOrderJson?: string;
   cabanaId?: string | null;
@@ -164,12 +170,19 @@ export async function insertAction(opts: {
       risk: opts.risk ?? "low",
       type: opts.type ?? null,
       agent: opts.agent ?? null,
+      tool: opts.tool ?? null,
+      input_json: opts.inputJson ?? "{}",
       cycle: opts.cycle ?? 0,
       work_order_json: opts.workOrderJson ?? null,
       cabana_id: opts.cabanaId ?? null,
     })
     .returning();
   return row;
+}
+
+export async function getAction(actionId: string) {
+  const [row] = await db.select().from(actions).where(eq(actions.id, actionId)).limit(1);
+  return row ?? null;
 }
 
 export async function updateActionStatus(

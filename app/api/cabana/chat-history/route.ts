@@ -5,36 +5,40 @@ import { getOrCreateThread, getThreadMessages, saveThreadMessages, clearThread }
 
 export const runtime = "nodejs";
 
-// GET /api/cabana/chat-history — load messages for the active thread
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const messagesJson = await getThreadMessages(session.user.email);
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
+  const messagesJson = await getThreadMessages(session.user.email, cabanaId);
   let messages: unknown[] = [];
-  try {
-    messages = JSON.parse(messagesJson);
-  } catch { /* empty thread */ }
+  try { messages = JSON.parse(messagesJson); } catch { /* empty */ }
 
   return NextResponse.json({ messages });
 }
 
-// POST /api/cabana/chat-history — save the full UIMessage[] array
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
   const { messages } = await req.json();
-  await saveThreadMessages(session.user.email, JSON.stringify(messages ?? []));
+  await saveThreadMessages(session.user.email, JSON.stringify(messages ?? []), cabanaId);
 
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/cabana/chat-history — clear the thread (new chat)
-export async function DELETE() {
+export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  await clearThread(session.user.email);
+  const { searchParams } = new URL(req.url);
+  const cabanaId = searchParams.get("cabana") ?? null;
+
+  await clearThread(session.user.email, cabanaId);
   return NextResponse.json({ ok: true });
 }

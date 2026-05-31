@@ -13,7 +13,7 @@ function SignInForm() {
   const [error, setError] = useState("");
   const params = useSearchParams();
   const router = useRouter();
-  const callbackUrl = params.get("callbackUrl") ?? "/chat";
+  const callbackUrl = params.get("callbackUrl") ?? "/cabanas";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

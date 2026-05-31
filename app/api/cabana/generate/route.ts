@@ -1,6 +1,9 @@
 import { gateway, streamObject } from "ai";
 import { z } from "zod";
+import Exa from "exa-js";
 import { AGENT_MODELS, estimateCost, type AgentId } from "@/app/lib/cabana-config";
+
+const exa = new Exa(process.env.EXA_API_KEY);
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -175,14 +178,62 @@ export async function POST(req: Request) {
         }
       }
 
+      // ── Exa helpers ───────────────────────────────────────────────────────────
+      function parseExaSources(blocks: string[]): { title: string; url: string; snippet: string }[] {
+        const sources: { title: string; url: string; snippet: string }[] = [];
+        for (const block of blocks) {
+          for (const line of block.split("\n\n")) {
+            const match = line.match(/^\[(.+?)\]\((https?:\/\/[^\)]+)\)\n?([\s\S]*)?$/);
+            if (match) {
+              sources.push({ title: match[1], url: match[2], snippet: (match[3] ?? "").trim().slice(0, 200) });
+            }
+          }
+        }
+        return sources;
+      }
+
+      async function exaSearch(query: string, numResults = 5): Promise<string> {
+        try {
+          const res = await exa.searchAndContents(query, {
+            numResults,
+            type: "neural",
+            useAutoprompt: true,
+            text: { maxCharacters: 400 },
+          });
+          return res.results
+            .map(r => `[${r.title}](${r.url})\n${r.text ?? ""}`)
+            .join("\n\n");
+        } catch {
+          return "";
+        }
+      }
+
       try {
+        const [competitorResults, communityResults, demandResults] = await Promise.all([
+          exaSearch(`${idea} competitors alternatives`),
+          exaSearch(`${idea} forum community reddit complaints problems`),
+          exaSearch(`${idea} customer pain points who buys`),
+        ]);
+        const exaContext = [
+          competitorResults && `## Competitor landscape\n${competitorResults}`,
+          communityResults && `## Community discussions\n${communityResults}`,
+          demandResults && `## Demand signals\n${demandResults}`,
+        ].filter(Boolean).join("\n\n");
+
+        // Surface the raw sources to the client so the user can see them.
+        send({ agent: "scout", type: "sources", sources: parseExaSources([competitorResults, communityResults, demandResults]) });
+
         // ── Scout ─────────────────────────────────────────────────────────────
         const scout = await runAgent("scout", ScoutSchema,
           `You are Scout — a market researcher finding the real pain behind this business idea.
 
 Idea: "${idea}"
 
-Find the real customer pain, where buyers gather, what alternatives exist, and what they search for. Be specific and grounded. Write pain statements in the customer's actual voice.`,
+Here is real web research pulled before this run — use it as primary source material:
+
+${exaContext}
+
+Based on the above real sources, identify the specific customer pain, where buyers gather, what alternatives exist, and what they search for. Quote or paraphrase real findings. Write pain statements in the customer's actual voice.`,
           o => [
             { label: "Pain clusters", value: String(o.pains.length) },
             { label: "Channels", value: String(o.channels.length) },

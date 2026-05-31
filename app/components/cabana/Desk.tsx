@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Streamdown } from "streamdown";
-import { Home, Users, Globe, Activity, BookText, Inbox, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
+import { Users, Globe, Activity, BookText, Inbox, Pencil, Check, Hammer, Loader2, ExternalLink, RotateCw, SquareStack, List } from "lucide-react";
 import { BRIEF_TEMPLATE, type BusinessBrief } from "@/app/lib/cabana-brief";
 import type { BuildState } from "@/app/lib/cabana-build";
 import { AGENT_META, AGENT_COLOR, AGENT_ORDER, BUILD_MODELS, type AgentId } from "@/app/lib/cabana-config";
@@ -27,7 +27,7 @@ export type CrewRun = {
   streamingText?: string;
 };
 
-export type DeskTab = "home" | "crew" | "page" | "signals" | "brief";
+export type DeskTab = "actions" | "crew" | "page" | "signals" | "brief";
 
 // The Desk — the right half of /chat. The founder's operating surface that
 // fills in as the Chief of Staff runs the crew.
@@ -67,38 +67,33 @@ export function Desk({
   const setTab = onTabChange;
   const workingCount = AGENT_ORDER.filter((id) => crew[id]?.status === "working").length;
 
+  // The Website tab only earns a slot once the Builder has been used — either a
+  // build is underway/done, or the Builder agent has produced a page suggestion.
+  const showWebsite = build.status !== "idle" || !!crew.builder?.output;
+  // Guard against a stale "page" selection when the Website tab isn't shown.
+  const activeTab = tab === "page" && !showWebsite ? "actions" : tab;
+
   return (
     <div className="flex flex-col h-full bg-black/[0.02]">
       {/* Tabs */}
       <div className="flex items-center gap-0.5 px-3 pt-3 border-b border-black/10">
-        <TabButton id="home" active={tab === "home"} onClick={setTab} icon={<Home size={14} />} label="Home" />
-        <TabButton id="crew" active={tab === "crew"} onClick={setTab} icon={<Users size={14} />} label="Crew" badge={workingCount || undefined} />
-        <TabButton id="page" active={tab === "page"} onClick={setTab} icon={<Globe size={14} />} label="Website" />
-        <TabButton id="signals" active={tab === "signals"} onClick={setTab} icon={<Activity size={14} />} label="Signals" />
-        <TabButton id="brief" active={tab === "brief"} onClick={setTab} icon={<BookText size={14} />} label="Brief" />
+        <TabButton id="actions" active={activeTab === "actions"} onClick={setTab} icon={<Inbox size={14} />} label="Actions" />
+        <TabButton id="crew" active={activeTab === "crew"} onClick={setTab} icon={<Users size={14} />} label="Crew" badge={workingCount || undefined} />
+        {showWebsite && (
+          <TabButton id="page" active={activeTab === "page"} onClick={setTab} icon={<Globe size={14} />} label="Website" />
+        )}
+        <TabButton id="signals" active={activeTab === "signals"} onClick={setTab} icon={<Activity size={14} />} label="Signals" />
+        <TabButton id="brief" active={activeTab === "brief"} onClick={setTab} icon={<BookText size={14} />} label="Brief" />
       </div>
 
       {/* Active view */}
       <div className="flex-1 overflow-y-auto p-4">
-        {tab === "home" && (
-          <HomePanel
-            crew={crew}
-            build={build}
-            brief={brief}
-            runs={runs}
-            onQuickAction={onQuickAction}
-            onSeeCrew={() => setTab("crew")}
-            onSeePage={() => setTab("page")}
-            onSeeSignals={() => setTab("signals")}
-          />
-        )}
-        {tab === "crew" && <CrewPanel runs={runs} />}
-        {tab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
-        {tab === "signals" && <SignalsPanel projectId={build.projectId} />}
-        {tab === "brief" && <BriefPanel brief={brief} onChange={onBriefChange} />}
+        {activeTab === "actions" && <ActionsPanel crew={crew} build={build} onQuickAction={onQuickAction} />}
+        {activeTab === "crew" && <CrewPanel runs={runs} />}
+        {activeTab === "page" && <PagePanel crew={crew} build={build} onBuild={onBuild} buildModel={buildModel} onBuildModelChange={onBuildModelChange} />}
+        {activeTab === "signals" && <SignalsPanel projectId={build.projectId} />}
+        {activeTab === "brief" && <BriefPanel brief={brief} onChange={onBriefChange} />}
       </div>
-
-      <ActionStrip />
     </div>
   );
 }
@@ -148,257 +143,163 @@ function EmptyPanel({ icon, title, hint }: { icon: React.ReactNode; title: strin
   );
 }
 
-// ─── Home — top-level "what's going on" ──────────────────────────────────────
-// The founder's home base. One goal: get to the first sale. Everything here is
-// framed as a friendly quest toward that, with real state lighting up the path.
-function HomePanel({
+// ─── Actions — approvals + next steps ────────────────────────────────────────
+// The founder's default surface: what needs their attention (CoS approval queue)
+// and what to do next (high-leverage moves the crew has surfaced). One place for
+// "what now?" — replaces the old gamified Home panel.
+function ActionsPanel({
   crew,
   build,
-  brief,
-  runs,
   onQuickAction,
-  onSeeCrew,
-  onSeePage,
-  onSeeSignals,
 }: {
   crew: CrewStatus;
   build: BuildState;
-  brief: BusinessBrief;
-  runs: CrewRun[];
   onQuickAction: (prompt: string) => void;
-  onSeeCrew: () => void;
-  onSeePage: () => void;
-  onSeeSignals: () => void;
 }) {
-  // Live lead/sale counts from the generated app's captured documents.
-  const [counts, setCounts] = useState<{ collection: string; count: number }[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
   useEffect(() => {
-    if (!build.projectId) return;
     let active = true;
-    async function pull() {
+    async function load() {
       try {
-        const res = await fetch(`/api/cabana/app-data/${build.projectId}`);
+        const res = await fetch("/api/cabana/actions");
         if (!res.ok) return;
         const json = await res.json();
-        if (active) setCounts(json.counts ?? []);
+        if (active) setActions(json.actions ?? []);
       } catch {
         /* ignore */
       }
     }
-    pull();
-    const t = setInterval(pull, 5000);
+    load();
+    const t = setInterval(load, 10000);
     return () => {
       active = false;
       clearInterval(t);
     };
-  }, [build.projectId]);
+  }, []);
 
-  const countOf = (c: string) => counts.find((x) => x.collection === c)?.count ?? 0;
-  const leads = counts.reduce((n, c) => n + (c.collection === "sales" || c.collection === "orders" ? 0 : c.count), 0);
-  const sales = countOf("sales") + countOf("orders");
+  const pending = actions.filter((a) => a.status === "proposed" || a.status === "needs_approval");
 
-  const strat = crew.strategist?.output as { businessName?: string; offer?: string; goal?: string } | undefined;
-  const name = strat?.businessName?.trim();
-  const offer = strat?.offer?.trim();
-
-  // The road to first revenue — each milestone lights up as real state lands.
-  const stages = [
-    { key: "idea", label: "Idea", emoji: "💡", done: !!(brief.content?.trim() || name) },
-    { key: "strategy", label: "Strategy", emoji: "🎯", done: !!crew.strategist?.output },
-    { key: "page", label: "Page live", emoji: "🌐", done: !!build.url },
-    { key: "leads", label: "First lead", emoji: "📨", done: leads > 0 },
-    { key: "sale", label: "First sale", emoji: "🎉", done: sales > 0 },
-  ];
-  const reached = stages.filter((s) => s.done).length;
-  const allDone = reached === stages.length;
-  // The current step is the first not-yet-done stage.
-  const currentIdx = stages.findIndex((s) => !s.done);
-
-  // A single, encouraging next step keyed to where they are.
-  const nextStep = (() => {
-    if (allDone) return null;
-    switch (stages[currentIdx].key) {
-      case "idea":
-        return { text: "Tell your Chief of Staff your idea to kick things off.", cta: null, onClick: null };
-      case "strategy":
-        return { text: "Ask the crew to lock a strategy and offer.", cta: "See crew", onClick: onSeeCrew };
-      case "page":
-        return { text: "Build your landing page so people have somewhere to land.", cta: "Go to page", onClick: onSeePage };
-      case "leads":
-        return build.url
-          ? { text: "Your page is live — share it to land your first lead.", cta: "Open live", onClick: null, href: build.url }
-          : { text: "Publish your page, then share it to capture leads.", cta: "Go to page", onClick: onSeePage };
-      case "sale":
-        return { text: "You've got leads! Nudge them toward your first sale.", cta: "See signals", onClick: onSeeSignals };
-      default:
-        return null;
+  async function updateStatus(id: string, status: string) {
+    try {
+      await fetch("/api/cabana/actions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      setActions((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    } catch {
+      /* ignore */
     }
-  })();
+  }
 
-  const working = AGENT_ORDER.filter((id) => crew[id]?.status === "working").length;
-  const recent = [...runs].reverse().slice(0, 4);
+  // Next steps the crew has surfaced — highest-leverage moves, tappable to send
+  // straight to the Chief of Staff.
+  const strat = crew.strategist?.output as { firstPriority?: string } | undefined;
+  const analyst = crew.analyst?.output as { next_play?: string; signals_to_watch?: string[] } | undefined;
+  const nextSteps: { emoji: string; label: string; prompt: string }[] = [];
+  if (analyst?.next_play) nextSteps.push({ emoji: "⏱️", label: analyst.next_play, prompt: analyst.next_play });
+  if (strat?.firstPriority) nextSteps.push({ emoji: "🎯", label: strat.firstPriority, prompt: strat.firstPriority });
+  if (build.url) nextSteps.push({ emoji: "📣", label: "Share your live page to land first leads", prompt: "Give me a plan to share my landing page and get my first leads." });
 
-  // Friendly quick actions — each fires a prompt to the Chief of Staff.
-  const suggestions = [
+  // Starter prompts when there's nothing yet — keeps a fresh project moving.
+  const starters = [
     { emoji: "🧭", label: "What's my next move?", prompt: "What should I focus on next to get my first sale?" },
     { emoji: "🔍", label: "Find my customers", prompt: "Help me figure out where my customers hang out and the best way to reach them." },
     { emoji: "🎯", label: "Sharpen my offer", prompt: "Let's refine my offer and pricing so it converts." },
     { emoji: "✍️", label: "Write outreach", prompt: "Draft outreach messages I can send to land my first customers." },
   ];
+  const steps = nextSteps.length > 0 ? nextSteps : starters;
 
   return (
-    <div className="space-y-4">
-      {/* Greeting + suggested actions */}
-      <section className="pt-2 text-center">
-        <h2 className="text-2xl font-bold tracking-tight">{name ? `Welcome back` : "Welcome to Cabana"}</h2>
-        <p className="mt-1 text-base text-black/50">
-          {name ? `What should we do for ${name} today?` : "What should we work on today?"}
-        </p>
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {suggestions.map((s) => (
+    <div className="space-y-5">
+      {/* Approvals */}
+      <section>
+        <div className="flex items-center gap-2 mb-2.5">
+          <Inbox size={13} className="text-black/40" />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-black/50">Needs approval</span>
+          {pending.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full text-white tabular-nums" style={{ background: SURF }}>
+              {pending.length}
+            </span>
+          )}
+        </div>
+
+        {pending.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-black/10 px-4 py-6 text-center">
+            <p className="text-sm text-black/50">Nothing waiting on you.</p>
+            <p className="mt-0.5 text-xs text-black/35">Approvals and decisions from the crew land here.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pending.map((action) => (
+              <div key={action.id} className="rounded-2xl border border-black/10 bg-white px-4 py-3">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-black/80">{action.title}</p>
+                    {action.why && <p className="text-xs text-black/50 mt-0.5">{action.why}</p>}
+                  </div>
+                  <span
+                    className="shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium"
+                    style={{
+                      background: action.risk === "high" ? "#fef2f2" : action.risk === "medium" ? "#fffbeb" : "#f0fdf4",
+                      color: action.risk === "high" ? "#991b1b" : action.risk === "medium" ? "#92400e" : "#166534",
+                    }}
+                  >
+                    {action.risk}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateStatus(action.id, "approved")}
+                    className="text-xs px-3 py-1.5 rounded-full font-medium text-white"
+                    style={{ background: SURF }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => updateStatus(action.id, "canceled")}
+                    className="text-xs px-3 py-1.5 rounded-full font-medium border border-black/10 hover:border-black/25 transition-colors"
+                  >
+                    Reject
+                  </button>
+                  {action.details && (
+                    <button
+                      onClick={() => alert(action.details)}
+                      className="ml-auto text-[11px] text-black/40 hover:text-black/60"
+                    >
+                      Details →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Next steps */}
+      <section>
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-black/50">
+            {nextSteps.length > 0 ? "Recommended next" : "Get started"}
+          </span>
+        </div>
+        <div className="space-y-2">
+          {steps.map((s) => (
             <button
               key={s.label}
               onClick={() => onQuickAction(s.prompt)}
-              className="flex items-center gap-3 rounded-full border border-black/10 bg-white px-4 py-3 text-left hover:border-black/30 transition-colors"
+              className="w-full flex items-center gap-3 rounded-2xl border border-black/10 bg-white px-4 py-3 text-left hover:border-black/30 transition-colors"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base" style={{ background: `${SURF}1a` }}>
                 {s.emoji}
               </span>
-              <span className="text-sm font-medium text-black/80">{s.label}</span>
+              <span className="flex-1 text-sm font-medium text-black/80">{s.label}</span>
+              <span className="shrink-0 text-black/25">→</span>
             </button>
           ))}
         </div>
       </section>
-
-      {/* Identity — what we're building */}
-      <section className="rounded-2xl border border-black/10 bg-white p-5">
-        <p className="text-[10px] uppercase tracking-wide text-black/40">{name ? "Building" : "Your idea"}</p>
-        <h2 className="mt-1 text-xl font-bold tracking-tight">
-          {name || "Let's land your first customer."}
-        </h2>
-        <p className="mt-1 text-sm text-black/50">
-          {offer || "Tell your Chief of Staff a one-line idea and the crew gets to work — every step points at your first sale."}
-        </p>
-      </section>
-
-      {/* Road to first sale — the quest */}
-      <section className="rounded-2xl border border-black/10 bg-white p-5">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-black/50">Road to your first sale</span>
-          <span className="text-[11px] font-medium tabular-nums" style={{ color: SURF }}>{reached}/{stages.length}</span>
-        </div>
-
-        <div className="mt-4 flex items-center">
-          {stages.map((s, i) => {
-            const isCurrent = i === currentIdx;
-            return (
-              <div key={s.key} className="flex items-center flex-1 last:flex-none">
-                <div className="flex flex-col items-center gap-1.5">
-                  <div
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-base transition-all ${
-                      s.done ? "scale-100" : isCurrent ? "scale-100 ring-2 ring-offset-2" : "opacity-35"
-                    }`}
-                    style={{
-                      background: s.done ? SURF : isCurrent ? `${SURF}1a` : "#f3f4f6",
-                      ...(isCurrent ? { boxShadow: `0 0 0 2px white, 0 0 0 4px ${SURF}` } : {}),
-                    }}
-                  >
-                    {s.done ? <Check size={16} className="text-white" /> : <span>{s.emoji}</span>}
-                  </div>
-                  <span className={`text-[10px] ${s.done ? "text-black/70 font-medium" : isCurrent ? "text-black/70" : "text-black/30"}`}>
-                    {s.label}
-                  </span>
-                </div>
-                {i < stages.length - 1 && (
-                  <div className="flex-1 h-0.5 mx-1 mb-4 rounded-full overflow-hidden bg-black/5">
-                    <div className="h-full rounded-full transition-all" style={{ width: s.done ? "100%" : "0%", background: SURF }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {allDone && (
-          <p className="mt-4 text-center text-sm font-semibold" style={{ color: SURF }}>🎉 First sale landed — let&apos;s get the next one.</p>
-        )}
-      </section>
-
-      {/* Next step nudge */}
-      {nextStep && (
-        <section className="rounded-2xl p-4 flex items-center gap-3" style={{ background: `${SURF}12` }}>
-          <span className="text-lg">👉</span>
-          <p className="flex-1 text-sm text-black/70">{nextStep.text}</p>
-          {nextStep.cta && (
-            nextStep.href ? (
-              <a href={nextStep.href} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full text-white" style={{ background: SURF }}>
-                {nextStep.cta}
-              </a>
-            ) : (
-              <button onClick={nextStep.onClick ?? undefined} className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full text-white" style={{ background: SURF }}>
-                {nextStep.cta}
-              </button>
-            )
-          )}
-        </section>
-      )}
-
-      {/* Achievement-style stats */}
-      <div className="grid grid-cols-3 gap-2">
-        <button onClick={onSeePage} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
-          <p className="text-[10px] uppercase tracking-wide text-black/40">Page</p>
-          <p className="mt-1 text-base font-bold" style={{ color: build.url ? SURF : undefined }}>
-            {build.url ? "Live ✓" : build.status === "building" ? "Building…" : "Not yet"}
-          </p>
-        </button>
-        <button onClick={onSeeSignals} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
-          <p className="text-[10px] uppercase tracking-wide text-black/40">Leads</p>
-          <p className="mt-1 text-base font-bold tabular-nums" style={{ color: leads > 0 ? SURF : undefined }}>{leads}</p>
-        </button>
-        <button onClick={onSeeCrew} className="text-left rounded-2xl border border-black/10 bg-white p-3 hover:border-black/25 transition-colors">
-          <p className="text-[10px] uppercase tracking-wide text-black/40">Crew</p>
-          <p className="mt-1 text-base font-bold">{working > 0 ? `${working} working` : "Ready"}</p>
-        </button>
-      </div>
-
-      {/* Crew at a glance */}
-      <section className="rounded-2xl border border-black/10 bg-white p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-black/50">Your crew</span>
-          <button onClick={onSeeCrew} className="text-[11px] text-black/40 hover:text-black/70 transition-colors">See all →</button>
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          {AGENT_ORDER.map((id) => (
-            <div key={id} className="flex flex-col items-center gap-1" title={`${AGENT_META[id].name} · ${crew[id]?.status ?? "idle"}`}>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm relative" style={{ background: `${AGENT_COLOR[id]}1a` }}>
-                {AGENT_META[id].icon}
-                <StatusDot status={crew[id]?.status ?? "idle"} className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Recent wins / activity */}
-      {recent.length > 0 && (
-        <section className="rounded-2xl border border-black/10 bg-white p-4">
-          <span className="text-[10px] uppercase tracking-wide text-black/50">Latest from the crew</span>
-          <div className="mt-3 space-y-2.5">
-            {recent.map((r) => (
-              <div key={r.id} className="flex items-start gap-2.5">
-                <span className="text-sm mt-0.5">{AGENT_META[r.agent]?.icon ?? "🛠️"}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-black/80">
-                    <span className="font-medium">{AGENT_META[r.agent]?.name ?? r.agent}</span>{" "}
-                    {r.status === "done" ? "finished" : "is working on"} {r.task ? `— ${r.task}` : ""}
-                  </p>
-                </div>
-                <StatusDot status={r.status === "done" ? "done" : "working"} className="mt-1" />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -616,6 +517,43 @@ function RunOutput({ output }: { output: unknown }) {
   return null;
 }
 
+// Terminal log stream — shows real-time stdout/stderr from the sandbox build.
+function BuildTerminal({ logs, currentCmd, html }: {
+  logs: { stream: "stdout" | "stderr"; text: string }[];
+  currentCmd?: string;
+  html?: string; // fall back to code stream if no logs yet
+}) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs.length]);
+
+  if (!logs.length && html) {
+    return <CodeStream code={html} />;
+  }
+
+  return (
+    <div className="flex-1 bg-[#0d1117] overflow-y-auto p-4 font-mono text-[11px] leading-relaxed min-h-[120px]">
+      {currentCmd && (
+        <div className="flex items-center gap-2 mb-2 text-[#58a6ff]">
+          <span className="text-[#3fb950]">$</span>
+          <span>{currentCmd}</span>
+          <span className="animate-pulse">▋</span>
+        </div>
+      )}
+      {logs.map((l, i) => (
+        <div key={i} className={l.stream === "stderr" ? "text-[#f85149]" : "text-[#8ddb9c]"}>
+          {l.text}
+        </div>
+      ))}
+      {!logs.length && (
+        <div className="text-[#484f58]">Waiting for build output…</div>
+      )}
+      <div ref={bottomRef} />
+    </div>
+  );
+}
+
 // The Builder wraps its output in a markdown ```html fence; strip it so both
 // the live code view and the final iframe preview get clean HTML.
 function stripFence(code?: string): string {
@@ -678,28 +616,34 @@ function PagePanel({
   buildModel: string;
   onBuildModelChange: (m: string) => void;
 }) {
-  // Building — stream the page into the iframe live. Spinner only until the
-  // first HTML arrives.
+  // Building — show terminal logs + live iframe once the sandbox is up.
   if (build.status === "building") {
-    if (!build.html) {
-      return (
-        <div className="h-full rounded-2xl border border-black/10 bg-white flex flex-col items-center justify-center text-center min-h-[280px]">
-          <Loader2 size={22} className="animate-spin" style={{ color: SURF }} />
-          <p className="mt-3 text-sm font-medium text-black/70">Builder is working…</p>
-          <p className="mt-1 text-xs text-black/40">{build.phase || "Writing the page"}</p>
-        </div>
-      );
-    }
+    const hasLivePreview = !!build.previewUrl;
     return (
       <div className="h-full rounded-2xl border border-black/10 bg-white overflow-hidden flex flex-col">
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-black/10">
-          <Loader2 size={14} className="animate-spin" style={{ color: SURF }} />
-          <span className="text-sm font-medium text-black/80">Writing the page…</span>
-          <span className="ml-auto text-[11px] text-black/30">{build.phase || "writing"}</span>
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-black/10 shrink-0">
+          <Loader2 size={14} className="animate-spin shrink-0" style={{ color: SURF }} />
+          <span className="text-sm font-medium text-black/80 truncate">{build.phase || "Builder is working…"}</span>
+          {hasLivePreview && (
+            <a href={build.previewUrl!} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-xs text-black/50 hover:text-black/80 shrink-0">
+              <ExternalLink size={12} /> Open
+            </a>
+          )}
         </div>
-        {/* Stream the code as text while the Builder writes. The live preview
-            only renders once the page is complete (build.status === "done"). */}
-        <CodeStream code={build.html} />
+
+        {/* Live app iframe — appears once Vite dev server is up */}
+        {hasLivePreview && (
+          <iframe
+            src={build.previewUrl!}
+            title="Live preview"
+            className="w-full border-b border-black/10"
+            style={{ height: "340px" }}
+          />
+        )}
+
+        {/* Terminal log stream */}
+        <BuildTerminal logs={build.logs ?? []} currentCmd={build.currentCmd} html={!hasLivePreview ? build.html : undefined} />
       </div>
     );
   }
@@ -724,7 +668,11 @@ function PagePanel({
           </div>
         </div>
         {build.error && <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100">{build.error}</div>}
-        <iframe srcDoc={stripFence(build.html)} title="Landing page preview" className="flex-1 w-full min-h-[420px] bg-white" sandbox="allow-scripts" />
+        {build.previewUrl ? (
+          <iframe src={build.previewUrl} title="Landing page preview" className="flex-1 w-full min-h-[420px] bg-white" />
+        ) : (
+          <iframe srcDoc={stripFence(build.html!)} title="Landing page preview" className="flex-1 w-full min-h-[420px] bg-white" sandbox="allow-scripts" />
+        )}
       </div>
     );
   }
@@ -1003,112 +951,3 @@ type Action = {
   type?: string;
   agent?: string;
 };
-
-function ActionStrip() {
-  const [actions, setActions] = useState<Action[]>([]);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      try {
-        const res = await fetch("/api/cabana/actions");
-        if (!res.ok) return;
-        const json = await res.json();
-        if (active) setActions(json.actions ?? []);
-      } catch {
-        /* ignore */
-      }
-    }
-    load();
-    const t = setInterval(load, 10000);
-    return () => {
-      active = false;
-      clearInterval(t);
-    };
-  }, []);
-
-  const pending = actions.filter(a => a.status === "proposed" || a.status === "needs_approval");
-  const count = pending.length;
-
-  async function updateStatus(id: string, status: string) {
-    try {
-      await fetch("/api/cabana/actions", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
-      });
-      setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <div className="border-t border-black/10 bg-white">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-5 py-3 flex items-center gap-2 hover:bg-black/[0.02] transition-colors"
-      >
-        <Inbox size={14} className="text-black/40" />
-        <span className="text-xs font-medium text-black/70">Action queue</span>
-        <span
-          className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full tabular-nums"
-          style={{ background: count > 0 ? SURF : "#00000008", color: count > 0 ? "white" : "#00000040" }}
-        >
-          {count}
-        </span>
-        <span className="ml-auto text-[11px] text-black/30">
-          {count > 0 ? `${count} pending` : "Approvals & decisions land here"}
-        </span>
-      </button>
-
-      {expanded && pending.length > 0 && (
-        <div className="border-t border-black/5 bg-black/[0.01] divide-y divide-black/5">
-          {pending.map(action => (
-            <div key={action.id} className="px-5 py-3">
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-black/80">{action.title}</p>
-                  <p className="text-xs text-black/50 mt-0.5">{action.why}</p>
-                </div>
-                <span
-                  className="shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium"
-                  style={{
-                    background: action.risk === "high" ? "#fef2f2" : action.risk === "medium" ? "#fffbeb" : "#f0fdf4",
-                    color: action.risk === "high" ? "#991b1b" : action.risk === "medium" ? "#92400e" : "#166534",
-                  }}
-                >
-                  {action.risk}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => updateStatus(action.id, "approved")}
-                  className="text-xs px-3 py-1.5 rounded-full font-medium text-white"
-                  style={{ background: SURF }}
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => updateStatus(action.id, "canceled")}
-                  className="text-xs px-3 py-1.5 rounded-full font-medium border border-black/10 hover:border-black/25 transition-colors"
-                >
-                  Reject
-                </button>
-                {action.details && (
-                  <button
-                    onClick={() => alert(action.details)}
-                    className="ml-auto text-[11px] text-black/40 hover:text-black/60"
-                  >
-                    Details →
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

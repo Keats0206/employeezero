@@ -4,11 +4,16 @@
 
 import type { CrewStatus } from "@/app/components/cabana/Desk";
 
+export type BuildLog = { stream: "stdout" | "stderr"; text: string };
+
 export type BuildState = {
   status: "idle" | "building" | "done" | "error";
   phase?: string;
   html?: string;
+  previewUrl?: string | null;
   url?: string | null;
+  logs?: BuildLog[];
+  currentCmd?: string;
   // The generated-app project this page captures data into. Persisted with the
   // build so a rebuild reuses it and leads accrue to one project.
   projectId?: string;
@@ -41,16 +46,35 @@ export async function streamBuild(
   signal?: AbortSignal,
   model?: string,
   projectId?: string,
+  updateBrief?: string,
+  existingHtml?: string,
 ) {
-  onState({ status: "building", phase: "Starting the Builder…", error: undefined });
+  const taskType = updateBrief && existingHtml ? "product_update" : "new_site";
+  onState({ status: "building", phase: "Starting the Builder…", error: undefined, logs: [], currentCmd: undefined, previewUrl: undefined });
 
   const res = await fetch("/api/cabana/deploy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ outputs: assembleOutputs(crew, chosenHeadline), taskType: "new_site", model, projectId }),
+    body: JSON.stringify({
+      outputs: assembleOutputs(crew, chosenHeadline),
+      taskType,
+      model,
+      projectId,
+      updateInstruction: updateBrief,
+      existingHtml,
+    }),
     signal,
   });
 
+  await consumeBuildStream(res, onState);
+}
+
+// Parse the Builder's SSE phases off a deploy Response into BuildState patches.
+// Shared by the chat's streamBuild and the anonymous onboarding build.
+export async function consumeBuildStream(
+  res: Response,
+  onState: (patch: Partial<BuildState>) => void,
+) {
   if (!res.ok || !res.body) {
     onState({ status: "error", error: `Build failed to start (${res.status})` });
     return;
@@ -59,7 +83,8 @@ export async function streamBuild(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  let codeBuf = ""; // accumulates streamed HTML so the preview builds live
+  let codeBuf = "";
+  const logBuf: BuildLog[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
@@ -79,6 +104,22 @@ export async function streamBuild(
         case "phase":
           onState({ status: "building", phase: String(event.text ?? event.phase ?? "Working…") });
           break;
+        case "sandbox_ready":
+          onState({ phase: "Sandbox ready — generating files…" });
+          break;
+        case "generating_files":
+          onState({ phase: `Generating ${(event.paths as string[])?.length ?? ""} files…`, currentCmd: undefined });
+          break;
+        case "run_command":
+          onState({ currentCmd: String(event.cmd ?? ""), phase: String(event.cmd ?? "Running…") });
+          break;
+        case "log":
+          logBuf.push({ stream: event.stream as "stdout" | "stderr", text: String(event.text ?? "") });
+          onState({ logs: logBuf.slice(-200) });
+          break;
+        case "preview_url":
+          onState({ previewUrl: String(event.url ?? ""), phase: "Live preview ready" });
+          break;
         case "code":
           // Live HTML deltas — stream them straight into the preview iframe.
           codeBuf += String(event.delta ?? "");
@@ -95,10 +136,10 @@ export async function streamBuild(
             url: (event.url as string | null) ?? null,
             projectId: (event.projectId as string | undefined) ?? undefined,
             phase: undefined,
+            currentCmd: undefined,
           });
           break;
         case "deploy_error":
-          // The page HTML still rendered; deploy to the sandbox failed.
           onState({ status: "done", url: null, phase: undefined, error: `Live deploy failed: ${event.message}` });
           break;
         case "error":

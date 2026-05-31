@@ -56,6 +56,14 @@ export const cabanas = pgTable("cabanas", {
   name: text("name").notNull().default(""),
   status: text("status").notNull().default("preview"), // preview | active | paused | completed
   plan: text("plan").notNull().default("free"), // free | sprint | pro
+  // JSON array of enabled AgentId values. Empty "[]" = roster not yet approved
+  // (the intake gate). Set once the founder approves the proposed crew.
+  enabled_agents: text("enabled_agents").notNull().default("[]"),
+  // Set when the cabana was started by importing an existing website.
+  source_url: text("source_url"),
+  // The AgentMail inbox outreach for this cabana sends from, so inbound replies
+  // (via the webhook) map back to the right business. Set on first send.
+  agentmail_inbox: text("agentmail_inbox"),
   sprint_day: integer("sprint_day").notNull().default(1),
   revenue_goal: text("revenue_goal"),
   current_revenue: integer("current_revenue").notNull().default(0),
@@ -260,6 +268,20 @@ export const actions = pgTable("actions", {
   created_at: now(),
 });
 
+export const userSubscriptions = pgTable("user_subscriptions", {
+  id: id(),
+  user_id: text("user_id").notNull().unique(),
+  stripe_customer_id: text("stripe_customer_id"),
+  stripe_subscription_id: text("stripe_subscription_id"),
+  status: text("status").notNull().default("none"), // none | trialing | active | canceled | past_due | unpaid
+  plan: text("plan").notNull().default("starter"), // starter | pro
+  current_period_end: timestamp("current_period_end", { withTimezone: true }),
+  trial_ends_at: timestamp("trial_ends_at", { withTimezone: true }),
+  credits_remaining: integer("credits_remaining").notNull().default(0),
+  created_at: now(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const appDocuments = pgTable("app_documents", {
   id: id(),
   project_id: text("project_id").notNull(),
@@ -267,5 +289,19 @@ export const appDocuments = pgTable("app_documents", {
   collection: text("collection").notNull(),
   // The document — any shape the generated app sends.
   data: jsonb("data").notNull().default({}),
+  created_at: now(),
+});
+
+// Ad / referral attribution captured at the start of onboarding (?ref=, ?utm_*)
+// and committed once the visitor signs in. Forwarded to Stripe checkout metadata
+// so paid conversions can be attributed back to a source.
+export const userAttribution = pgTable("user_attribution", {
+  id: id(),
+  user_id: text("user_id").notNull().unique(),
+  referral_code: text("referral_code"),
+  utm_source: text("utm_source"),
+  utm_medium: text("utm_medium"),
+  utm_campaign: text("utm_campaign"),
+  landing_path: text("landing_path"),
   created_at: now(),
 });

@@ -1,22 +1,28 @@
 import { contentFromOutputs, runBuilderTask, type BuilderTaskType } from "@/app/lib/agents/builder";
 import { BUILD_MODELS } from "@/app/lib/cabana-config";
-import { requireCabanaOwnership, unauthorizedResponse, upgradeRequiredResponse, canUsePaidFeatures } from "@/app/lib/auth-helpers";
+import { requireAuth, requireCabanaOwnership, requireActiveSubscription, unauthorizedResponse, upgradeRequiredResponse } from "@/app/lib/auth-helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const { outputs, existingHtml, updateInstruction, taskType, model, projectId, cabanaId } = await req.json();
-  
-  // Require auth and check plan if cabanaId is provided
+
+  // Always require auth + active subscription.
+  let userId: string;
+  try {
+    ({ userId } = await requireAuth());
+    await requireActiveSubscription(userId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "Subscription required") return upgradeRequiredResponse();
+    return unauthorizedResponse();
+  }
+
+  // Extra: verify ownership if a specific cabana is named.
   if (cabanaId) {
     try {
-      const { cabana } = await requireCabanaOwnership(cabanaId);
-      
-      // Only paid plans can deploy
-      if (!canUsePaidFeatures(cabana.plan)) {
-        return upgradeRequiredResponse(cabanaId);
-      }
+      await requireCabanaOwnership(cabanaId);
     } catch {
       return unauthorizedResponse();
     }

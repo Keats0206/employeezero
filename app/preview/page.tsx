@@ -10,10 +10,11 @@ type Stage = "bootup" | "building" | "preview";
 
 // ─── Boot-up ──────────────────────────────────────────────────────────────────
 
-function BootupScreen({ idea, onDone, onOutputs }: {
+function BootupScreen({ idea, onDone, onOutputs, onSources }: {
   idea: string;
   onDone: () => void;
   onOutputs: (o: AgentOutputs) => void;
+  onSources: (s: { title: string; url: string; snippet: string }[]) => void;
 }) {
   const [statuses, setStatuses] = useState<Record<string, "queued" | "working" | "done">>({});
   const [displayLines, setDisplayLines] = useState<Record<string, string>>({});
@@ -49,6 +50,10 @@ function BootupScreen({ idea, onDone, onOutputs }: {
             const event = JSON.parse(line.slice(6));
             if (event.agent && event.type === "start") {
               setStatuses(s => ({ ...s, [event.agent]: "working" }));
+            }
+            if (event.agent === "scout" && event.type === "sources") {
+              onSources(event.sources ?? []);
+              setStatuses(s => ({ ...s, scout: "working" }));
             }
             if (event.agent && event.type === "progress") {
               setStatuses(s => ({ ...s, [event.agent]: "working" }));
@@ -219,6 +224,7 @@ function BuilderCard({ outputs }: { outputs: AgentOutputs }) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [code, setCode] = useState("");
   const [html, setHtml] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [deployUrl, setDeployUrl] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
   const started = useRef(false);
@@ -258,6 +264,7 @@ function BuilderCard({ outputs }: { outputs: AgentOutputs }) {
               setCode(c => c + event.delta);
               requestAnimationFrame(() => codeRef.current?.scrollTo({ top: codeRef.current.scrollHeight }));
             }
+            if (event.type === "preview_url") { setPreviewUrl(event.url); setPhase("rendering"); }
             if (event.type === "html") { setHtml(event.html); setPhase("rendering"); }
             if (event.type === "complete") {
               if (event.html) setHtml(event.html);
@@ -274,7 +281,7 @@ function BuilderCard({ outputs }: { outputs: AgentOutputs }) {
   }, []);
 
   const writing = phase === "writing";
-  const showSite = html && (phase === "rendering" || phase === "deploying" || phase === "done");
+  const showSite = (previewUrl || html) && (phase === "rendering" || phase === "deploying" || phase === "done");
 
   return (
     <AgentCard agentId="builder">
@@ -303,16 +310,29 @@ function BuilderCard({ outputs }: { outputs: AgentOutputs }) {
             <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
             <span className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
             <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
-            <span className="ml-2 text-[11px] text-black/40 font-mono truncate">
-              {deployUrl ?? "preview"}
+            <span className="ml-2 text-[11px] text-black/40 font-mono truncate flex-1">
+              {deployUrl ?? previewUrl ?? "preview"}
             </span>
+            {previewUrl && !deployUrl && (
+              <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="ml-auto shrink-0">
+                <ExternalLink size={10} className="text-black/30 hover:text-black/60 transition-colors" />
+              </a>
+            )}
           </div>
-          <iframe
-            title="Your generated site"
-            srcDoc={html!}
-            className="w-full h-[420px] bg-white"
-            sandbox="allow-scripts"
-          />
+          {previewUrl ? (
+            <iframe
+              title="Live preview"
+              src={previewUrl}
+              className="w-full h-[420px] bg-white"
+            />
+          ) : (
+            <iframe
+              title="Your generated site"
+              srcDoc={html!}
+              className="w-full h-[420px] bg-white"
+              sandbox="allow-scripts"
+            />
+          )}
         </div>
       )}
 
@@ -340,9 +360,10 @@ function BuilderCard({ outputs }: { outputs: AgentOutputs }) {
   );
 }
 
-function PreviewScreen({ idea, outputs, onLaunch }: {
+function PreviewScreen({ idea, outputs, scoutSources, onLaunch }: {
   idea: string;
   outputs: AgentOutputs;
+  scoutSources: { title: string; url: string; snippet: string }[];
   onLaunch: () => void;
 }) {
   const s = outputs.strategist;
@@ -399,6 +420,28 @@ function PreviewScreen({ idea, outputs, onLaunch }: {
               <span key={c} className="bg-black/[0.04] text-black/70 text-xs px-2.5 py-1 rounded-full">{c}</span>
             ))}
           </div>
+          {scoutSources.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-black/5">
+              <p className="text-xs font-medium text-black/40 mb-2">Sources</p>
+              <div className="space-y-2">
+                {scoutSources.slice(0, 5).map((s, i) => (
+                  <a
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2 group"
+                  >
+                    <ExternalLink size={10} className="mt-1 shrink-0 text-black/20 group-hover:text-black/50 transition-colors" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-black/60 group-hover:text-black truncate transition-colors">{s.title}</p>
+                      {s.snippet && <p className="text-[10px] text-black/30 leading-relaxed line-clamp-1">{s.snippet}</p>}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </AgentCard>
 
         <AgentCard agentId="strategist">
@@ -472,6 +515,7 @@ function PreviewPage() {
   const idea = decodeURIComponent(params.get("idea") ?? "");
   const [stage, setStage] = useState<Stage>("bootup");
   const [outputs, setOutputs] = useState<AgentOutputs>({});
+  const [scoutSources, setScoutSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
 
   if (!idea) {
     router.replace("/");
@@ -510,10 +554,11 @@ function PreviewPage() {
           idea={idea}
           onDone={() => setStage("preview")}
           onOutputs={handleOutputs}
+          onSources={setScoutSources}
         />
       )}
       {stage === "preview" && (
-        <PreviewScreen idea={idea} outputs={outputs} onLaunch={handleLaunch} />
+        <PreviewScreen idea={idea} outputs={outputs} scoutSources={scoutSources} onLaunch={handleLaunch} />
       )}
     </>
   );

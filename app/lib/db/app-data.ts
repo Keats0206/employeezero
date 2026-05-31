@@ -30,6 +30,18 @@ export async function getAppProject(projectId: string) {
   return row ?? null;
 }
 
+// The (most recent) generated-app project for a cabana, if one exists. Lets the
+// reply webhook surface inbound emails in the same Signals tab as captured leads.
+export async function getProjectByCabana(cabanaId: string) {
+  const [row] = await db
+    .select()
+    .from(appProjects)
+    .where(eq(appProjects.cabana_id, cabanaId))
+    .orderBy(desc(appProjects.created_at))
+    .limit(1);
+  return row ?? null;
+}
+
 // Validate that the supplied public key matches the project. Cheap gate for the
 // public ingestion endpoint — write-only, so a leaked key only allows writes
 // into that one project's collections.
